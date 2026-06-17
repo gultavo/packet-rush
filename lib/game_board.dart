@@ -22,7 +22,7 @@ class _GameBoardState extends State<GameBoard> {
   double gravity = 10.0;
   double velocidade = 20.0;
   bool? isOnGround = false;
-  
+
   Timer? timer;
   Size? screenSize;
 
@@ -31,11 +31,12 @@ class _GameBoardState extends State<GameBoard> {
       Objects(x: 350, y: 300, width: 64 * 4),
       Objects(x: 550, y: 200, width: 64 * 4),
 
-
       for (var i = 0; i < screenSize!.width / 64; i++)
         Objects(
           x: i * 64,
-          y: screenSize!.height - 64, width: 64, height: 64,
+          y: screenSize!.height - 64,
+          width: 64,
+          height: 64,
           type: Type.ground,
         ),
     ]);
@@ -75,15 +76,13 @@ class _GameBoardState extends State<GameBoard> {
 
       // Colisão com as plataformas
       for (var plataforma in plataformas) {
-        if (
-          player.bottom <= plataforma.top &&
-          player.bottom + player.velocity.y >= plataforma.top &&
-          player.right > plataforma.left &&
-          player.left < plataforma.right
-          ) {
-            player.velocity.y = 0;
-            player.y = plataforma.top - player.height;
-            isOnGround = true;
+        if (player.bottom <= plataforma.top &&
+            player.bottom + player.velocity.y >= plataforma.top &&
+            player.right > plataforma.left &&
+            player.left < plataforma.right) {
+          player.velocity.y = 0;
+          player.y = plataforma.top - player.height;
+          isOnGround = true;
         }
       }
 
@@ -91,6 +90,7 @@ class _GameBoardState extends State<GameBoard> {
       for (var tiro in tiros) {
         tiro.x += 20;
       }
+      tiros.removeWhere((t) => t.left > screenSize!.width);
 
       // Update three widgets
       setState(() {});
@@ -104,7 +104,6 @@ class _GameBoardState extends State<GameBoard> {
     player.x = 100;
   }
 
-
   @override
   void initState() {
     super.initState();
@@ -112,7 +111,6 @@ class _GameBoardState extends State<GameBoard> {
     // Delay
     Timer(const Duration(seconds: 1), spawnPLataformas);
   }
-
 
   @override
   Widget build(BuildContext context) {
@@ -124,58 +122,59 @@ class _GameBoardState extends State<GameBoard> {
         onKeyEvent: keyListener,
         child: Stack(
           children: [
-
-            for (var plataforma in plataformas) 
+            for (var plataforma in plataformas)
               Positioned(
                 top: plataforma.y,
                 left: plataforma.x,
                 width: plataforma.width,
                 height: plataforma.height,
                 child: Container(
-                  color: plataforma.type == Type.ground ? Colors.grey : const Color.fromARGB(255, 15, 132, 187),
+                  color: plataforma.type == Type.ground
+                      ? Colors.grey
+                      : const Color.fromARGB(255, 15, 132, 187),
                 ),
               ),
 
-            for (var tiro in tiros) 
+            for (var tiro in tiros)
               AnimatedPositioned(
                 top: tiro.y,
                 left: tiro.x,
 
                 width: tiro.width,
                 height: tiro.height,
-                
+
                 duration: fps,
 
-                child: Container(
-                  color: Colors.red,
-                ),
+                child: Container(color: Colors.red),
               ),
 
             AnimatedPositioned(
               top: player.y,
               left: player.x,
-              
+
               width: player.width,
               height: player.height,
 
               duration: fps,
+
               // curve: Curves.linear,
-        
               child: Container(
                 height: 100,
                 color: const Color.fromARGB(255, 235, 184, 18),
               ),
             ),
-          ]
+          ],
         ),
       ),
     );
   }
 
   KeyEventResult keyListener(FocusNode node, KeyEvent event) {
-    var pressed = HardwareKeyboard.instance.isLogicalKeyPressed(event.logicalKey);
+    var pressed = HardwareKeyboard.instance.isLogicalKeyPressed(
+      event.logicalKey,
+    );
 
-  if (event.logicalKey == LogicalKeyboardKey.arrowLeft) {
+    if (event.logicalKey == LogicalKeyboardKey.arrowLeft) {
       keys.left = pressed;
     } else if (event.logicalKey == LogicalKeyboardKey.arrowRight) {
       keys.right = pressed;
@@ -184,12 +183,7 @@ class _GameBoardState extends State<GameBoard> {
         player.velocity.y = -velocidade * 4;
       }
     } else if (event.logicalKey == LogicalKeyboardKey.space) {
-      tiros.add(Objects(
-        width: 32,
-        height: 12,
-        x: player.right,
-        y: player.top,
-      ));
+      tiros.add(Objects(width: 32, height: 12, x: player.right, y: player.top));
     }
 
     return KeyEventResult.handled;
