@@ -137,6 +137,7 @@ class _GameBoardState extends State<GameBoard> {
 
             for (var tiro in tiros)
               AnimatedPositioned(
+                key: ValueKey(tiro),
                 top: tiro.y,
                 left: tiro.x,
 
@@ -149,6 +150,7 @@ class _GameBoardState extends State<GameBoard> {
               ),
 
             AnimatedPositioned(
+              key: const ValueKey('player'),
               top: player.y,
               left: player.x,
 
