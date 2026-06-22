@@ -112,6 +112,10 @@ class _GameBoardState extends State<GameBoard> {
     Timer(const Duration(seconds: 1), spawnPLataformas);
   }
 
+  bool get isMobile {
+    return MediaQuery.of(context).size.width < 600;
+  }
+
   @override
   Widget build(BuildContext context) {
     screenSize = MediaQuery.of(context).size;
@@ -163,6 +167,106 @@ class _GameBoardState extends State<GameBoard> {
               child: Container(
                 height: 100,
                 color: const Color.fromARGB(255, 235, 184, 18),
+              ),
+            ),
+
+            if (isMobile) _buildMobileControls(),
+            if (isMobile) _buildJumpButton(),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildJumpButton() {
+    return Positioned(
+      top: 700,
+      right: 173,
+      child: GestureDetector(
+        onTapDown: (_) {
+          if (isOnGround == true) {
+            player.velocity.y = -velocidade * 4;
+          }
+        },
+        child: Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: Colors.blue,
+            shape: BoxShape.circle,
+          ),
+          child: const Icon(Icons.arrow_upward, color: Colors.white, size: 24),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMobileControls() {
+    return Positioned(
+      bottom: 50,
+      left: 0,
+      right: 0,
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 20),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            GestureDetector(
+              onTapDown: (_) {
+                keys.left = true;
+              },
+              onTapUp: (_) {
+                keys.left = false;
+              },
+              onTapCancel: () {
+                keys.left = false;
+              },
+              child: Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.blue,
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(Icons.arrow_back, color: Colors.white, size: 24),
+              ),
+            ),
+            const SizedBox(width: 40),
+            GestureDetector(
+              onTapDown: (_) {
+                tiros.add(Objects(
+                  width: 32,
+                  height: 12,
+                  x: player.right,
+                  y: player.top,
+                ));
+              },
+              child: Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.red,
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(Icons.local_fire_department,
+                    color: Colors.white, size: 24),
+              ),
+            ),
+            const SizedBox(width: 40),
+            GestureDetector(
+              onTapDown: (_) {
+                keys.right = true;
+              },
+              onTapUp: (_) {
+                keys.right = false;
+              },
+              onTapCancel: () {
+                keys.right = false;
+              },
+              child: Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.blue,
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(Icons.arrow_forward, color: Colors.white, size: 24),
               ),
             ),
           ],
