@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'player.dart';
+import 'enemy.dart';
 import 'dart:async';
 import 'keys_map.dart';
 import 'package:flutter/services.dart';
@@ -15,6 +16,8 @@ class GameBoard extends StatefulWidget {
 
 class _GameBoardState extends State<GameBoard> {
   final player = Player(x: 100, y: 100);
+  final enemy = Enemy(x: 200, y: 100);
+
   final fps = Duration(milliseconds: 50);
   final plataformas = <Objects>[];
   final tiros = <Objects>[];
@@ -63,10 +66,15 @@ class _GameBoardState extends State<GameBoard> {
       player.y += player.velocity.y;
       player.x += player.velocity.x;
 
+      enemy.y += enemy.velocity.y; //TESTE
+      enemy.x += enemy.velocity.x; //TESTE
+
       if (player.top > _gameHeight + 600) {
         reset();
       } else {
         player.velocity.y += gravity;
+        enemy.velocity.x += gravity; //TESTE
+
         isOnGround = false;
       }
 
@@ -114,6 +122,9 @@ class _GameBoardState extends State<GameBoard> {
   }
 
   void reset() {
+    enemy.velocity.x = 5;
+    enemy.velocity.y = 2;
+
     player.velocity.x = 0;
     player.velocity.y = 0;
     player.y = 100;
@@ -172,6 +183,17 @@ class _GameBoardState extends State<GameBoard> {
                       duration: fps,
                       child: Container(color: Colors.red),
                     ),
+
+                  AnimatedPositioned(
+                    top: enemy.x - cameraY,
+                    left: enemy.x - cameraX,
+                    width: enemy.width,
+                    height: enemy.height,
+                    duration: fps,
+                    child: Container(
+                      color: const Color.fromARGB(255, 255, 14, 215),
+                    ),
+                  ),
 
                   AnimatedPositioned(
                     top: player.y - cameraY,
