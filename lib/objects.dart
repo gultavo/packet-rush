@@ -1,5 +1,10 @@
 enum Type { plataforma, ground }
 
+class GroundSegment {
+  final double startX;
+  final double endX;
+  const GroundSegment(this.startX, this.endX);
+}
 
 class Objects {
   double x;
