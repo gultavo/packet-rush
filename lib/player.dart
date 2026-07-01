@@ -7,11 +7,13 @@ class Player {
 
   Vector velocity = Vector(0, 0);
 
+  String currentSprite = 'sprites/boneco_1.png';
+
   Player({
     this.x = 0,
     this.y = 0,
-    this.width = 64,
-    this.height = 64,
+    this.width = 70,
+    this.height = 70,
   });
 
   double get top => y;

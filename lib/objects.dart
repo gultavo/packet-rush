@@ -14,6 +14,9 @@ class Objects {
 
   Type type;
 
+  String currentSpriteTiro = 'sprites/tiro.png';
+  String currentSpritePlataforma = 'sprites/plataforma_1.png';
+
   Objects({
     required this.x,
     required this.y,

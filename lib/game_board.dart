@@ -6,6 +6,7 @@ import 'dart:async';
 import 'keys_map.dart';
 import 'package:flutter/services.dart';
 import 'objects.dart';
+import 'levels.dart';
 
 class GameBoard extends StatefulWidget {
   const GameBoard({super.key});
@@ -15,13 +16,15 @@ class GameBoard extends StatefulWidget {
 }
 
 class _GameBoardState extends State<GameBoard> {
-  final player = Player(x: 100, y: 100);
+  final player = Player(x: 130, y: 130);
   final enemy = Enemy(x: 200, y: 100);
 
   final fps = Duration(milliseconds: 50);
   final plataformas = <Objects>[];
   final tiros = <Objects>[];
   final keys = KeyMap();
+
+  LevelData level = levelOne;
 
   double gravity = 10.0;
   double velocidade = 20.0;
@@ -35,7 +38,7 @@ class _GameBoardState extends State<GameBoard> {
   final groundSegments = [
     const GroundSegment(double.negativeInfinity, double.infinity),
   ];
-  static const _groundHeight = 64.0;
+  static const _groundHeight = 42.0;
   static const _taskbarHeight = 100.0;
 
   bool get _isMobile =>
@@ -113,7 +116,7 @@ class _GameBoardState extends State<GameBoard> {
 
       // Tiro
       for (var tiro in tiros) {
-        tiro.x += 20;
+        tiro.x += 40;
       }
       tiros.removeWhere((t) => t.left > player.x + screenSize!.width);
 
@@ -156,9 +159,19 @@ class _GameBoardState extends State<GameBoard> {
         child: Column(
           children: [
             Expanded(
-              child: Stack(
-                children: [
-                  for (var seg in groundSegments) _buildGroundSegment(seg),
+              child: Container(
+                // pega o backgroun definido no level.dart e chamado no levelData level = levelOne;
+                decoration: BoxDecoration(
+                  image: DecorationImage(
+                    image: AssetImage(level.backgroundImage),
+                    // BoxFit.cover faz a imagem preencher toda a área disponível 
+                    // sem distorcer o seu aspecto visual
+                    fit: BoxFit.cover,
+                  ),
+                ),
+                child: Stack(
+                  children: [
+                    for (var seg in groundSegments) _buildGroundSegment(seg),
 
                   for (var plataforma in plataformas)
                     AnimatedPositioned(
@@ -169,7 +182,12 @@ class _GameBoardState extends State<GameBoard> {
                       height: plataforma.height,
                       duration: fps,
                       child: Container(
-                        color: const Color.fromARGB(255, 15, 132, 187),
+                        decoration: BoxDecoration(
+                          image: DecorationImage(
+                            image: AssetImage(plataforma.currentSpritePlataforma),
+                            fit: BoxFit.contain,
+                          ),
+                        ),
                       ),
                     ),
 
@@ -181,11 +199,18 @@ class _GameBoardState extends State<GameBoard> {
                       width: tiro.width,
                       height: tiro.height,
                       duration: fps,
-                      child: Container(color: Colors.red),
+                      child: Container(
+                        decoration: BoxDecoration(
+                          image: DecorationImage(
+                            image: AssetImage(tiro.currentSpriteTiro),
+                            fit: BoxFit.contain,
+                          ),
+                        ),
+                      ),
                     ),
 
                   AnimatedPositioned(
-                    top: enemy.x - cameraY,
+                    top: enemy.y - cameraY,
                     left: enemy.x - cameraX,
                     width: enemy.width,
                     height: enemy.height,
@@ -201,14 +226,25 @@ class _GameBoardState extends State<GameBoard> {
                     width: player.width,
                     height: player.height,
                     duration: fps,
-                    child: Container(
-                      color: const Color.fromARGB(255, 235, 184, 18),
+                    child: Transform.flip(  // FAZER O MESMO PRO INIMIGO QUANDO PRONTO
+                      
+                      flipX: keys.left, // Flip horizontalmente se a tecla esquerda estiver pressionada
+
+                      child: Container(
+                        decoration: BoxDecoration(
+                          image: DecorationImage(
+                            // Pega dinamicamente o sprite que estiver ativo na classe Player
+                            image: AssetImage(player.currentSprite),
+                            fit: BoxFit.contain,
+                          ),
+                        ),
+                      ),
                     ),
                   ),
                 ],
               ),
             ),
-
+          ),
             if (_isMobile) _buildTaskbar(),
           ],
         ),
@@ -256,8 +292,8 @@ class _GameBoardState extends State<GameBoard> {
                 onStart: () => setState(() {
                   tiros.add(
                     Objects(
-                      width: 32,
-                      height: 12,
+                      width: 64,
+                      height: 24,
                       x: player.right,
                       y: player.top + player.height / 2 - 6,
                     ),
@@ -307,10 +343,18 @@ class _GameBoardState extends State<GameBoard> {
     return AnimatedPositioned(
       duration: fps,
       top: _groundY - cameraY,
-      left: visLeft,
-      width: visRight - visLeft,
+      left: 0 - cameraX,
+      width: 99999,
       height: _groundHeight,
-      child: Container(color: Colors.grey),
+      child: Container(
+        decoration: const BoxDecoration(
+          image: DecorationImage(
+            image: AssetImage('sprites/plataforma_1.png'),
+            alignment: Alignment.topLeft,
+            repeat: ImageRepeat.repeatX,
+          ),
+        )
+      ),
     );
   }
 
@@ -328,7 +372,7 @@ class _GameBoardState extends State<GameBoard> {
         player.velocity.y = -velocidade * 4;
       }
     } else if (event.logicalKey == LogicalKeyboardKey.space) {
-      tiros.add(Objects(width: 32, height: 12, x: player.right, y: player.top));
+      tiros.add(Objects(width: 64, height: 24, x: player.right, y: player.top)); //tamanho do tiro
     }
 
     return KeyEventResult.handled;
