@@ -70,9 +70,9 @@ class _GameBoardState extends State<GameBoard> {
 
     return camX;
   }
-  
-  
-  double get cameraY => 0; // câmera fixa no Y — player sobe/desce na tela livremente
+
+  double get cameraY =>
+      0; // câmera fixa no Y — player sobe/desce na tela livremente
 
   void spawnPLataformas() {
     plataformas.addAll([
@@ -93,7 +93,7 @@ class _GameBoardState extends State<GameBoard> {
       if (player.x < 0) {
         player.x = 0;
       }
-      
+
       // 2. Bloqueia a saída pela direita (Fim do cenário)
       if (player.x > larguraDoMapa - player.width) {
         player.x = larguraDoMapa - player.width;
@@ -114,8 +114,11 @@ class _GameBoardState extends State<GameBoard> {
       // Movimento para os lados
       if (keys.left) {
         player.velocity.x = -velocidade;
+        player.position = 0;
       } else if (keys.right) {
         player.velocity.x = velocidade;
+
+        player.position = 1;
       } else {
         player.velocity.x = 0;
       }
@@ -159,8 +162,7 @@ class _GameBoardState extends State<GameBoard> {
     if (!_podeAtirar) return;
 
     setState(() {
-
-      double posx = keys.left ? player.left - 64 : player.right;
+      double posx = player.position == 0 ? player.left - 64 : player.right;
 
       tiros.add(
         Objects(
@@ -168,7 +170,9 @@ class _GameBoardState extends State<GameBoard> {
           height: 24,
           x: posx,
           y: player.top + player.height / 2 - 6,
-          invertido: keys.left, // Define a direção do tiro com base na tecla pressionada
+          invertido:
+              player.position ==
+              0,
         ),
       );
       _podeAtirar = false;
@@ -183,6 +187,8 @@ class _GameBoardState extends State<GameBoard> {
   void reset() {
     enemy.velocity.x = 5;
     enemy.velocity.y = 2;
+
+    player.position = 1;
 
     player.velocity.x = 0;
     player.velocity.y = 0;
@@ -218,22 +224,25 @@ class _GameBoardState extends State<GameBoard> {
               child: Container(
                 child: Stack(
                   children: [
-
                     AnimatedPositioned(
                       duration: fps,
                       top: 0, // Começa no topo da tela
-                      left: 0 - (cameraX * 0.4), // <--- O SEGREDO DO PARALLAX ESTÁ AQUI!
+                      left:
+                          0 -
+                          (cameraX *
+                              0.4), // <--- O SEGREDO DO PARALLAX ESTÁ AQUI!
                       // Multiplicar por 0.4 faz o fundo se mover mais devagar que o boneco,
                       // dando uma sensação incrível de profundidade 3D no cenário.
                       // Se quiser que ele se mova na MESMA velocidade exata do chão, deixe apenas: 0 - cameraX
-                      
-                      width: 99999, // Largura gigante para a imagem se repetir infinitamente
-                      height: _gameHeight, // Preenche a altura do jogo perfeitamente
+                      width:
+                          99999, // Largura gigante para a imagem se repetir infinitamente
+                      height:
+                          _gameHeight, // Preenche a altura do jogo perfeitamente
                       child: Container(
                         decoration: BoxDecoration(
                           image: DecorationImage(
                             image: AssetImage(level.backgroundImage),
-                            alignment: Alignment.topLeft, 
+                            alignment: Alignment.topLeft,
                           ),
                         ),
                       ),
@@ -241,83 +250,85 @@ class _GameBoardState extends State<GameBoard> {
 
                     for (var seg in groundSegments) _buildGroundSegment(seg),
 
-                  for (var plataforma in plataformas)
-                    AnimatedPositioned(
-                      key: ValueKey(plataforma),
-                      top: plataforma.y - cameraY,
-                      left: plataforma.x - cameraX,
-                      width: plataforma.width,
-                      height: plataforma.height,
-                      duration: fps,
-                      child: Container(
-                        decoration: BoxDecoration(
-                          image: DecorationImage(
-                            image: AssetImage(plataforma.currentSpritePlataforma),
-                            fit: BoxFit.contain,
-                          ),
-                        ),
-                      ),
-                    ),
-
-                  for (var tiro in tiros)
-                    AnimatedPositioned(
-                      key: ValueKey(tiro),
-                      top: tiro.y - cameraY,
-                      left: tiro.x - cameraX,
-                      width: tiro.width,
-                      height: tiro.height,
-                      duration: fps,
-                      child: Transform.flip(  
-                      
-                      flipX: tiro.invertido,
-
+                    for (var plataforma in plataformas)
+                      AnimatedPositioned(
+                        key: ValueKey(plataforma),
+                        top: plataforma.y - cameraY,
+                        left: plataforma.x - cameraX,
+                        width: plataforma.width,
+                        height: plataforma.height,
+                        duration: fps,
                         child: Container(
                           decoration: BoxDecoration(
                             image: DecorationImage(
-                              image: AssetImage(tiro.currentSpriteTiro),
+                              image: AssetImage(
+                                plataforma.currentSpritePlataforma,
+                              ),
+                              fit: BoxFit.contain,
+                            ),
+                          ),
+                        ),
+                      ),
+
+                    for (var tiro in tiros)
+                      AnimatedPositioned(
+                        key: ValueKey(tiro),
+                        top: tiro.y - cameraY,
+                        left: tiro.x - cameraX,
+                        width: tiro.width,
+                        height: tiro.height,
+                        duration: fps,
+                        child: Transform.flip(
+                          flipX: tiro.invertido,
+
+                          child: Container(
+                            decoration: BoxDecoration(
+                              image: DecorationImage(
+                                image: AssetImage(tiro.currentSpriteTiro),
+                                fit: BoxFit.contain,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+
+                    AnimatedPositioned(
+                      top: enemy.y - cameraY,
+                      left: enemy.x - cameraX,
+                      width: enemy.width,
+                      height: enemy.height,
+                      duration: fps,
+                      child: Container(
+                        color: const Color.fromARGB(255, 255, 14, 215),
+                      ),
+                    ),
+
+                    AnimatedPositioned(
+                      top: player.y - cameraY,
+                      left: player.x - cameraX,
+                      width: player.width,
+                      height: player.height,
+                      duration: fps,
+                      child: Transform.flip(
+                        // FAZER O MESMO PRO INIMIGO QUANDO PRONTO
+                        flipX: player.position == 0,
+
+                        // Flip horizontalmente se a tecla esquerda estiver pressionada
+                        child: Container(
+                          decoration: BoxDecoration(
+                            image: DecorationImage(
+                              // Pega dinamicamente o sprite que estiver ativo na classe Player
+                              image: AssetImage(player.currentSprite),
                               fit: BoxFit.contain,
                             ),
                           ),
                         ),
                       ),
                     ),
-
-                  AnimatedPositioned(
-                    top: enemy.y - cameraY,
-                    left: enemy.x - cameraX,
-                    width: enemy.width,
-                    height: enemy.height,
-                    duration: fps,
-                    child: Container(
-                      color: const Color.fromARGB(255, 255, 14, 215),
-                    ),
-                  ),
-
-                  AnimatedPositioned(
-                    top: player.y - cameraY,
-                    left: player.x - cameraX,
-                    width: player.width,
-                    height: player.height,
-                    duration: fps,
-                    child: Transform.flip(  // FAZER O MESMO PRO INIMIGO QUANDO PRONTO
-                      
-                      flipX: keys.left, // Flip horizontalmente se a tecla esquerda estiver pressionada
-
-                      child: Container(
-                        decoration: BoxDecoration(
-                          image: DecorationImage(
-                            // Pega dinamicamente o sprite que estiver ativo na classe Player
-                            image: AssetImage(player.currentSprite),
-                            fit: BoxFit.contain,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
-          ),
             if (_isMobile) _buildTaskbar(),
           ],
         ),
@@ -360,7 +371,7 @@ class _GameBoardState extends State<GameBoard> {
                 },
                 onEnd: () {},
               ),
-             _controlButton(
+              _controlButton(
                 icon: Icons.circle,
                 onStart: _executarDisparo, // Agora usa a função com trava
                 onEnd: () {},
@@ -381,16 +392,16 @@ class _GameBoardState extends State<GameBoard> {
       // HitTestBehavior.opaque garante que toda a área do botão seja clicável,
       // mesmo as partes transparentes do Container.
       behavior: HitTestBehavior.opaque,
-      
+
       // O dedo tocou na tela (dentro do botão)
       onPointerDown: (_) => onStart(),
-      
+
       // O dedo saiu da tela (não importa se estava fora do botão, ele avisa!)
       onPointerUp: (_) => onEnd(),
-      
+
       // O sistema cancelou o toque (ex: o usuário recebeu uma ligação na hora)
       onPointerCancel: (_) => onEnd(),
-      
+
       child: Container(
         width: 64,
         height: 64,
@@ -427,7 +438,7 @@ class _GameBoardState extends State<GameBoard> {
             alignment: Alignment.topLeft,
             repeat: ImageRepeat.repeatX,
           ),
-        )
+        ),
       ),
     );
   }
