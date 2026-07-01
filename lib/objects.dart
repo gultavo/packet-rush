@@ -17,12 +17,16 @@ class Objects {
   String currentSpriteTiro = 'sprites/tiro.png';
   String currentSpritePlataforma = 'sprites/plataforma_1.png';
 
+  final bool invertido;
+
+
   Objects({
     required this.x,
     required this.y,
     this.width = 50,
     this.height = 50,
     this.type = Type.plataforma,
+    this.invertido  = false,
   });
 
   double get top => y;

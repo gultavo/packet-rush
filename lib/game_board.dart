@@ -32,6 +32,9 @@ class _GameBoardState extends State<GameBoard> {
 
   Timer? timer;
   Size? screenSize;
+  bool _podeAtirar = true; // Controla o timeout do tiro
+
+  double larguraDoMapa = levelOne.larguraDoMapa; // tamanho do mapa
 
   // Para criar um GAP futuramente: divida em dois segmentos com intervalo entre eles,
   // ex: [GroundSegment(double.negativeInfinity, 300), GroundSegment(600, double.infinity)].
@@ -50,9 +53,26 @@ class _GameBoardState extends State<GameBoard> {
 
   double get _groundY => _gameHeight - _groundHeight;
 
-  double get cameraX => player.x - screenSize!.width / 2 + player.width / 2;
-  double get cameraY =>
-      0; // câmera fixa no Y — player sobe/desce na tela livremente
+  double get cameraX {
+    if (screenSize == null) return 0;
+
+    // Cálculo original para centralizar a câmera no jogador
+    double camX = player.x - screenSize!.width / 2 + player.width / 2;
+
+    // Se a câmera tentar ir além do início (0), ela trava em 0.
+    // Isso elimina a tela branca do começo do jogo!
+    if (camX < 0) return 0;
+
+    //Se a câmera tentar passar do fim do cenário, ela trava também.
+    // Isso vai eliminar a tela branca do final do jogo!
+    double maxCamX = larguraDoMapa - screenSize!.width;
+    if (camX > maxCamX) return maxCamX;
+
+    return camX;
+  }
+  
+  
+  double get cameraY => 0; // câmera fixa no Y — player sobe/desce na tela livremente
 
   void spawnPLataformas() {
     plataformas.addAll([
@@ -68,6 +88,16 @@ class _GameBoardState extends State<GameBoard> {
     timer = Timer.periodic(fps, (t) {
       player.y += player.velocity.y;
       player.x += player.velocity.x;
+
+      // 1. Bloqueia a saída pela esquerda (Início do cenário)
+      if (player.x < 0) {
+        player.x = 0;
+      }
+      
+      // 2. Bloqueia a saída pela direita (Fim do cenário)
+      if (player.x > larguraDoMapa - player.width) {
+        player.x = larguraDoMapa - player.width;
+      }
 
       enemy.y += enemy.velocity.y; //TESTE
       enemy.x += enemy.velocity.x; //TESTE
@@ -116,11 +146,37 @@ class _GameBoardState extends State<GameBoard> {
 
       // Tiro
       for (var tiro in tiros) {
-        tiro.x += 40;
+        // Se estiver invertido, subtrai 40 (vai para a esquerda), senão soma 40 (vai para a direita)
+        tiro.x += tiro.invertido ? -40 : 40;
       }
       tiros.removeWhere((t) => t.left > player.x + screenSize!.width);
 
       setState(() {});
+    });
+  }
+
+  void _executarDisparo() {
+    if (!_podeAtirar) return;
+
+    setState(() {
+
+      double posx = keys.left ? player.left - 64 : player.right;
+
+      tiros.add(
+        Objects(
+          width: 64,
+          height: 24,
+          x: posx,
+          y: player.top + player.height / 2 - 6,
+          invertido: keys.left, // Define a direção do tiro com base na tecla pressionada
+        ),
+      );
+      _podeAtirar = false;
+    });
+
+    // Define o tempo de espera (300ms). Altere o valor se quiser mais rápido ou devagar.
+    Future.delayed(const Duration(milliseconds: 300), () {
+      _podeAtirar = true;
     });
   }
 
@@ -160,17 +216,29 @@ class _GameBoardState extends State<GameBoard> {
           children: [
             Expanded(
               child: Container(
-                // pega o backgroun definido no level.dart e chamado no levelData level = levelOne;
-                decoration: BoxDecoration(
-                  image: DecorationImage(
-                    image: AssetImage(level.backgroundImage),
-                    // BoxFit.cover faz a imagem preencher toda a área disponível 
-                    // sem distorcer o seu aspecto visual
-                    fit: BoxFit.cover,
-                  ),
-                ),
                 child: Stack(
                   children: [
+
+                    AnimatedPositioned(
+                      duration: fps,
+                      top: 0, // Começa no topo da tela
+                      left: 0 - (cameraX * 0.4), // <--- O SEGREDO DO PARALLAX ESTÁ AQUI!
+                      // Multiplicar por 0.4 faz o fundo se mover mais devagar que o boneco,
+                      // dando uma sensação incrível de profundidade 3D no cenário.
+                      // Se quiser que ele se mova na MESMA velocidade exata do chão, deixe apenas: 0 - cameraX
+                      
+                      width: 99999, // Largura gigante para a imagem se repetir infinitamente
+                      height: _gameHeight, // Preenche a altura do jogo perfeitamente
+                      child: Container(
+                        decoration: BoxDecoration(
+                          image: DecorationImage(
+                            image: AssetImage(level.backgroundImage),
+                            alignment: Alignment.topLeft, 
+                          ),
+                        ),
+                      ),
+                    ),
+
                     for (var seg in groundSegments) _buildGroundSegment(seg),
 
                   for (var plataforma in plataformas)
@@ -199,11 +267,16 @@ class _GameBoardState extends State<GameBoard> {
                       width: tiro.width,
                       height: tiro.height,
                       duration: fps,
-                      child: Container(
-                        decoration: BoxDecoration(
-                          image: DecorationImage(
-                            image: AssetImage(tiro.currentSpriteTiro),
-                            fit: BoxFit.contain,
+                      child: Transform.flip(  
+                      
+                      flipX: tiro.invertido,
+
+                        child: Container(
+                          decoration: BoxDecoration(
+                            image: DecorationImage(
+                              image: AssetImage(tiro.currentSpriteTiro),
+                              fit: BoxFit.contain,
+                            ),
                           ),
                         ),
                       ),
@@ -287,18 +360,9 @@ class _GameBoardState extends State<GameBoard> {
                 },
                 onEnd: () {},
               ),
-              _controlButton(
+             _controlButton(
                 icon: Icons.circle,
-                onStart: () => setState(() {
-                  tiros.add(
-                    Objects(
-                      width: 64,
-                      height: 24,
-                      x: player.right,
-                      y: player.top + player.height / 2 - 6,
-                    ),
-                  );
-                }),
+                onStart: _executarDisparo, // Agora usa a função com trava
                 onEnd: () {},
               ),
             ],
@@ -313,10 +377,20 @@ class _GameBoardState extends State<GameBoard> {
     required VoidCallback onStart,
     required VoidCallback onEnd,
   }) {
-    return GestureDetector(
-      onTapDown: (_) => onStart(),
-      onTapUp: (_) => onEnd(),
-      onTapCancel: onEnd,
+    return Listener(
+      // HitTestBehavior.opaque garante que toda a área do botão seja clicável,
+      // mesmo as partes transparentes do Container.
+      behavior: HitTestBehavior.opaque,
+      
+      // O dedo tocou na tela (dentro do botão)
+      onPointerDown: (_) => onStart(),
+      
+      // O dedo saiu da tela (não importa se estava fora do botão, ele avisa!)
+      onPointerUp: (_) => onEnd(),
+      
+      // O sistema cancelou o toque (ex: o usuário recebeu uma ligação na hora)
+      onPointerCancel: (_) => onEnd(),
+      
       child: Container(
         width: 64,
         height: 64,
@@ -343,7 +417,7 @@ class _GameBoardState extends State<GameBoard> {
     return AnimatedPositioned(
       duration: fps,
       top: _groundY - cameraY,
-      left: 0 - cameraX,
+      left: -999 - cameraX,
       width: 99999,
       height: _groundHeight,
       child: Container(
@@ -372,7 +446,9 @@ class _GameBoardState extends State<GameBoard> {
         player.velocity.y = -velocidade * 4;
       }
     } else if (event.logicalKey == LogicalKeyboardKey.space) {
-      tiros.add(Objects(width: 64, height: 24, x: player.right, y: player.top)); //tamanho do tiro
+      if (pressed) {
+        _executarDisparo(); // Dispara respeitando o cooldown e apenas no evento de pressionar
+      }
     }
 
     return KeyEventResult.handled;
