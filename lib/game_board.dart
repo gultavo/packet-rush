@@ -7,24 +7,37 @@ import 'keys_map.dart';
 import 'package:flutter/services.dart';
 import 'objects.dart';
 import 'levels.dart';
+import 'fases/fase.dart';
 
+/// Motor genérico do jogo.
+///
+/// O GameBoard não conhece nenhuma fase específica: ele recebe uma [Fase] e
+/// executa o comportamento comum (física, câmera, controles, tiro e
+/// renderização). A construção específica de cada fase (cenário, chão,
+/// plataformas e posições iniciais) vive nos arquivos em `lib/fases/`.
 class GameBoard extends StatefulWidget {
-  const GameBoard({super.key});
+  final Fase fase;
+
+  const GameBoard({super.key, required this.fase});
 
   @override
   State<GameBoard> createState() => _GameBoardState();
 }
 
 class _GameBoardState extends State<GameBoard> {
-  final player = Player(x: 130, y: 130);
-  final enemy = Enemy(x: 200, y: 100);
+  late final Player player;
+  late final Enemy enemy;
 
   final fps = Duration(milliseconds: 50);
   final plataformas = <Objects>[];
   final tiros = <Objects>[];
   final keys = KeyMap();
 
-  LevelData level = levelOne;
+  // Atalhos para os dados específicos da fase atual.
+  Fase get fase => widget.fase;
+  LevelData get level => fase.level;
+  double get larguraDoMapa => fase.larguraDoMapa; // tamanho do mapa
+  List<GroundSegment> get groundSegments => fase.groundSegments;
 
   double gravity = 10.0;
   double velocidade = 20.0;
@@ -34,13 +47,6 @@ class _GameBoardState extends State<GameBoard> {
   Size? screenSize;
   bool _podeAtirar = true; // Controla o timeout do tiro
 
-  double larguraDoMapa = levelOne.larguraDoMapa; // tamanho do mapa
-
-  // Para criar um GAP futuramente: divida em dois segmentos com intervalo entre eles,
-  // ex: [GroundSegment(double.negativeInfinity, 300), GroundSegment(600, double.infinity)].
-  final groundSegments = [
-    const GroundSegment(double.negativeInfinity, double.infinity),
-  ];
   static const _groundHeight = 42.0;
   static const _taskbarHeight = 100.0;
 
@@ -75,11 +81,7 @@ class _GameBoardState extends State<GameBoard> {
   double get cameraY => 0; // câmera fixa no Y — player sobe/desce na tela livremente
 
   void spawnPLataformas() {
-    plataformas.addAll([
-      Objects(x: 350, y: 500, width: 64 * 4),
-      Objects(x: 550, y: 400, width: 64 * 4),
-      Objects(x: 750, y: 300, width: 64 * 4),
-    ]);
+    plataformas.addAll(fase.criarPlataformas());
 
     update();
   }
@@ -186,13 +188,15 @@ class _GameBoardState extends State<GameBoard> {
 
     player.velocity.x = 0;
     player.velocity.y = 0;
-    player.y = 100;
-    player.x = 100;
+    player.x = fase.playerStartX;
+    player.y = fase.playerStartY;
   }
 
   @override
   void initState() {
     super.initState();
+    player = Player(x: fase.playerStartX, y: fase.playerStartY);
+    enemy = Enemy(x: fase.enemyStartX, y: fase.enemyStartY);
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
     Timer(const Duration(seconds: 1), spawnPLataformas);
   }
