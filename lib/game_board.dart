@@ -22,6 +22,9 @@ class _GameBoardState extends State<GameBoard> {
   final fps = Duration(milliseconds: 50);
   final plataformas = <Objects>[];
   final tiros = <Objects>[];
+
+  final enemy_tiros = <Objects>[];
+
   final keys = KeyMap();
 
   LevelData level = levelOne;
@@ -29,6 +32,7 @@ class _GameBoardState extends State<GameBoard> {
   double gravity = 10.0;
   double velocidade = 20.0;
   bool? isOnGround = false;
+  bool? isOnGroundEnemy = false;
 
   Timer? timer;
   Size? screenSize;
@@ -102,13 +106,22 @@ class _GameBoardState extends State<GameBoard> {
       enemy.y += enemy.velocity.y; //TESTE
       enemy.x += enemy.velocity.x; //TESTE
 
+      // Trava o inimigo dentro dos limites do mapa, igual ao player
+      if (enemy.x < 0) {
+        enemy.x = 0;
+      }
+      if (enemy.x > larguraDoMapa - enemy.width) {
+        enemy.x = larguraDoMapa - enemy.width;
+      }
+
       if (player.top > _gameHeight + 600) {
         reset();
       } else {
         player.velocity.y += gravity;
-        enemy.velocity.x += gravity; //TESTE
+        enemy.velocity.y += gravity; // era .x, isso fazia o inimigo acelerar pros lados em vez de cair
 
         isOnGround = false;
+        isOnGroundEnemy = false;
       }
 
       // Movimento para os lados
@@ -143,6 +156,30 @@ class _GameBoardState extends State<GameBoard> {
             player.velocity.y = 0;
             player.y = _groundY - player.height;
             isOnGround = true;
+          }
+        }
+      }
+
+      // Colisão do inimigo com as plataformas flutuantes
+      for (var plataforma in plataformas) {
+        if (enemy.bottom <= plataforma.top &&
+            enemy.bottom + enemy.velocity.y >= plataforma.top &&
+            enemy.right > plataforma.left &&
+            enemy.left < plataforma.right) {
+          enemy.velocity.y = 0;
+          enemy.y = plataforma.top - enemy.height;
+          isOnGroundEnemy = true;
+        }
+      }
+
+      // Colisão do inimigo com o chão (segmentos)
+      for (var seg in groundSegments) {
+        if (enemy.right > seg.startX && enemy.left < seg.endX) {
+          if (enemy.bottom <= _groundY &&
+              enemy.bottom + enemy.velocity.y >= _groundY) {
+            enemy.velocity.y = 0;
+            enemy.y = _groundY - enemy.height;
+            isOnGroundEnemy = true;
           }
         }
       }
@@ -298,8 +335,17 @@ class _GameBoardState extends State<GameBoard> {
                       width: enemy.width,
                       height: enemy.height,
                       duration: fps,
-                      child: Container(
-                        color: const Color.fromARGB(255, 255, 14, 215),
+                      child: Transform.flip(
+                        // Espelha o sprite conforme o lado que o inimigo está olhando
+                        flipX: enemy.position == 0,
+                        child: Container(
+                          decoration: BoxDecoration(
+                            image: DecorationImage(
+                              image: AssetImage(enemy.currentSprite),
+                              fit: BoxFit.contain,
+                            ),
+                          ),
+                        ),
                       ),
                     ),
 
@@ -310,7 +356,6 @@ class _GameBoardState extends State<GameBoard> {
                       height: player.height,
                       duration: fps,
                       child: Transform.flip(
-                        // FAZER O MESMO PRO INIMIGO QUANDO PRONTO
                         flipX: player.position == 0,
 
                         // Flip horizontalmente se a tecla esquerda estiver pressionada
