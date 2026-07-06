@@ -7,6 +7,8 @@ class Enemy {
 
   double position;
 
+  bool vivo = true; // false quando o inimigo é atingido por um tiro do player
+
   Vector velocity = Vector(0, 0);
 
   String currentSprite = 'sprites/enemy_1.png';

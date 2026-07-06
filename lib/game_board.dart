@@ -30,11 +30,18 @@ class _GameBoardState extends State<GameBoard> {
 
   final fps = Duration(milliseconds: 50);
   final plataformas = <Objects>[];
-  final tiros = <Objects>[];
-
-  final enemy_tiros = <Objects>[];
+  final tiros = <Objects>[]; // tiros do player
+  final enemyTiros = <Objects>[]; // tiros do inimigo
 
   final keys = KeyMap();
+
+  // Vidas do player (barra de vida no topo).
+  static const int _maxVidas = 3;
+  int vidas = _maxVidas;
+
+  // Inimigo: velocidade lenta de perseguição e controle do cooldown do tiro.
+  double enemyVelocidade = 3.0;
+  bool _inimigoPodeAtirar = true;
 
   // Atalhos para os dados específicos da fase atual.
   Fase get fase => widget.fase;
@@ -105,8 +112,30 @@ class _GameBoardState extends State<GameBoard> {
         player.x = larguraDoMapa - player.width;
       }
 
-      enemy.y += enemy.velocity.y; //TESTE
-      enemy.x += enemy.velocity.x; //TESTE
+      // IA do inimigo: segue o player devagar e atira quando ele está por perto.
+      if (enemy.vivo) {
+        final dx = player.x - enemy.x;
+        enemy.position = dx < 0 ? 0 : 1; // vira para o lado do player
+
+        // Persegue de leve, mas para a uma certa distância (fica atirando).
+        const distanciaParada = 250.0;
+        if (dx.abs() > distanciaParada) {
+          enemy.velocity.x = dx < 0 ? -enemyVelocidade : enemyVelocidade;
+        } else {
+          enemy.velocity.x = 0;
+        }
+
+        // Só atira se o player estiver dentro do alcance (grosso modo, na tela).
+        final alcance = screenSize?.width ?? 800;
+        if (dx.abs() < alcance) {
+          _dispararInimigo();
+        }
+      } else {
+        enemy.velocity.x = 0;
+      }
+
+      enemy.y += enemy.velocity.y;
+      enemy.x += enemy.velocity.x;
 
       // Trava o inimigo dentro dos limites do mapa, igual ao player
       if (enemy.x < 0) {
@@ -186,12 +215,41 @@ class _GameBoardState extends State<GameBoard> {
         }
       }
 
-      // Tiro
+      // Tiro do player
       for (var tiro in tiros) {
         // Se estiver invertido, subtrai 40 (vai para a esquerda), senão soma 40 (vai para a direita)
         tiro.x += tiro.invertido ? -40 : 40;
       }
       tiros.removeWhere((t) => t.left > player.x + screenSize!.width);
+
+      // Tiro do inimigo (um pouco mais lento que o do player)
+      for (var tiro in enemyTiros) {
+        tiro.x += tiro.invertido ? -18 : 18;
+      }
+      // Remove os tiros do inimigo que saíram da tela (dos dois lados)
+      final camEsq = cameraX - 100;
+      final camDir = cameraX + (screenSize?.width ?? 0) + 100;
+      enemyTiros.removeWhere((t) => t.right < camEsq || t.left > camDir);
+
+      // Colisão: tiro do inimigo acerta o player → perde uma vida.
+      // Detecta os acertos primeiro e só depois aplica o dano, porque
+      // _perderVida pode limpar a lista (evita ConcurrentModificationError).
+      final acertosNoPlayer = enemyTiros
+          .where((t) => _colide(t, player.left, player.top, player.right, player.bottom))
+          .toList();
+      if (acertosNoPlayer.isNotEmpty) {
+        enemyTiros.removeWhere(acertosNoPlayer.contains);
+        for (var _ in acertosNoPlayer) {
+          _perderVida();
+        }
+      }
+
+      // Colisão: tiro do player acerta o inimigo → inimigo morre
+      if (enemy.vivo &&
+          tiros.any((t) => _colide(t, enemy.left, enemy.top, enemy.right, enemy.bottom))) {
+        tiros.removeWhere((t) => _colide(t, enemy.left, enemy.top, enemy.right, enemy.bottom));
+        enemy.vivo = false;
+      }
 
       setState(() {});
     });
@@ -223,10 +281,56 @@ class _GameBoardState extends State<GameBoard> {
     });
   }
 
-  void reset() {
-    enemy.velocity.x = 5;
-    enemy.velocity.y = 2;
+  // Checagem simples de colisão (AABB) entre um objeto e um retângulo.
+  bool _colide(Objects o, double left, double top, double right, double bottom) {
+    return o.right > left && o.left < right && o.bottom > top && o.top < bottom;
+  }
 
+  // O inimigo dispara um tiro na direção do player, respeitando o cooldown.
+  void _dispararInimigo() {
+    if (!_inimigoPodeAtirar || !enemy.vivo) return;
+
+    final paraEsquerda = player.x < enemy.x;
+    final posx = paraEsquerda ? enemy.left - 64 : enemy.right;
+
+    enemyTiros.add(
+      Objects(
+        width: 64,
+        height: 24,
+        x: posx,
+        y: enemy.top + enemy.height / 2 - 12,
+        invertido: paraEsquerda,
+      ),
+    );
+
+    _inimigoPodeAtirar = false;
+    Future.delayed(const Duration(milliseconds: 1200), () {
+      _inimigoPodeAtirar = true;
+    });
+  }
+
+  // Player leva um tiro: perde uma vida. Sem vidas, reinicia a fase.
+  void _perderVida() {
+    if (vidas <= 0) return;
+    vidas--;
+
+    if (vidas <= 0) {
+      vidas = _maxVidas;
+      tiros.clear();
+      enemyTiros.clear();
+
+      // Revive e reposiciona o inimigo para um recomeço limpo.
+      enemy.vivo = true;
+      enemy.x = fase.enemyStartX;
+      enemy.y = fase.enemyStartY;
+      enemy.velocity.x = 0;
+      enemy.velocity.y = 0;
+
+      reset();
+    }
+  }
+
+  void reset() {
     player.position = 1;
 
     player.velocity.x = 0;
@@ -333,25 +437,47 @@ class _GameBoardState extends State<GameBoard> {
                         ),
                       ),
 
-                    AnimatedPositioned(
-                      top: enemy.y - cameraY,
-                      left: enemy.x - cameraX,
-                      width: enemy.width,
-                      height: enemy.height,
-                      duration: fps,
-                      child: Transform.flip(
-                        // Espelha o sprite conforme o lado que o inimigo está olhando
-                        flipX: enemy.position == 0,
-                        child: Container(
-                          decoration: BoxDecoration(
-                            image: DecorationImage(
-                              image: AssetImage(enemy.currentSprite),
-                              fit: BoxFit.contain,
+                    for (var tiro in enemyTiros)
+                      AnimatedPositioned(
+                        key: ValueKey(tiro),
+                        top: tiro.y - cameraY,
+                        left: tiro.x - cameraX,
+                        width: tiro.width,
+                        height: tiro.height,
+                        duration: fps,
+                        child: Transform.flip(
+                          flipX: tiro.invertido,
+                          child: Container(
+                            decoration: BoxDecoration(
+                              image: DecorationImage(
+                                image: AssetImage(tiro.currentSpriteTiro),
+                                fit: BoxFit.contain,
+                              ),
                             ),
                           ),
                         ),
                       ),
-                    ),
+
+                    if (enemy.vivo)
+                      AnimatedPositioned(
+                        top: enemy.y - cameraY,
+                        left: enemy.x - cameraX,
+                        width: enemy.width,
+                        height: enemy.height,
+                        duration: fps,
+                        child: Transform.flip(
+                          // Espelha o sprite conforme o lado que o inimigo está olhando
+                          flipX: enemy.position == 0,
+                          child: Container(
+                            decoration: BoxDecoration(
+                              image: DecorationImage(
+                                image: AssetImage(enemy.currentSprite),
+                                fit: BoxFit.contain,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
 
                     AnimatedPositioned(
                       top: player.y - cameraY,
@@ -374,6 +500,9 @@ class _GameBoardState extends State<GameBoard> {
                         ),
                       ),
                     ),
+
+                    // Barra de vida (fixa no topo da tela)
+                    Positioned(top: 16, left: 16, child: _buildBarraDeVida()),
                   ],
                 ),
               ),
@@ -382,6 +511,24 @@ class _GameBoardState extends State<GameBoard> {
           ],
         ),
       ),
+    );
+  }
+
+  // Corações representando as vidas restantes do player.
+  Widget _buildBarraDeVida() {
+    return Row(
+      children: [
+        for (int i = 0; i < _maxVidas; i++)
+          Padding(
+            padding: const EdgeInsets.only(right: 4),
+            child: Icon(
+              i < vidas ? Icons.favorite : Icons.favorite_border,
+              color: Colors.red,
+              size: 32,
+              shadows: const [Shadow(color: Colors.black, blurRadius: 4)],
+            ),
+          ),
+      ],
     );
   }
 
