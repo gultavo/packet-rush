@@ -5,13 +5,19 @@ class Enemy {
   double width;
   double height;
 
+  double position;
+
   Vector velocity = Vector(0, 0);
+
+  String currentSprite = 'sprites/enemy_1.png';
 
   Enemy({
     this.x = 0,
     this.y = 0,
     this.width = 64,
     this.height = 64,
+
+    this.position = 0
   });
 
   double get top => y;

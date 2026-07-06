@@ -5,6 +5,8 @@ class Player {
   double width;
   double height;
 
+  double position;
+
   Vector velocity = Vector(0, 0);
 
   String currentSprite = 'sprites/boneco_1.png';
@@ -14,6 +16,9 @@ class Player {
     this.y = 0,
     this.width = 70,
     this.height = 70,
+    
+    this.position = 0
+
   });
 
   double get top => y;
