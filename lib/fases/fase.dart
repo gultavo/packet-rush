@@ -1,5 +1,6 @@
 import '../levels.dart';
 import '../objects.dart';
+import 'fase_content.dart';
 
 /// Descreve a construção específica de uma fase do jogo.
 ///
@@ -34,6 +35,21 @@ class Fase {
   /// fase gere objetos novos, sem reaproveitar instâncias antigas.
   final List<Objects> Function() criarPlataformas;
 
+  // ── Conteúdo didático e quiz ──────────────────────────────────────────
+
+  /// Título do cenário (ex.: "O Subsolo dos Sinais").
+  String? titulo;
+
+  /// Texto de leitura exibido no balão de texto antes da fase começar.
+  String? conteudo;
+
+  /// Perguntas do quiz exibido ao entrar no portal.
+  List<Pergunta>? perguntas;
+
+  /// Posição X do portal no mapa. Se null, será posicionado automaticamente
+  /// no final do mapa (larguraDoMapa - 200).
+  final double? portalX;
+
   Fase({
     required this.andar,
     required this.numero,
@@ -44,8 +60,15 @@ class Fase {
     this.playerStartY = 130,
     this.enemyStartX = 200,
     this.enemyStartY = 100,
+    this.titulo,
+    this.conteudo,
+    this.perguntas,
+    this.portalX,
   });
 
   /// Atalho para a largura do mapa definida no nível.
   double get larguraDoMapa => level.larguraDoMapa;
+
+  /// Posição efetiva do portal (default: final do mapa - 375).
+  double get portalEfetivo => portalX ?? (larguraDoMapa - 375);
 }

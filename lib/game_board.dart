@@ -9,12 +9,6 @@ import 'objects.dart';
 import 'levels.dart';
 import 'fases/fase.dart';
 
-/// Motor genérico do jogo.
-///
-/// O GameBoard não conhece nenhuma fase específica: ele recebe uma [Fase] e
-/// executa o comportamento comum (física, câmera, controles, tiro e
-/// renderização). A construção específica de cada fase (cenário, chão,
-/// plataformas e posições iniciais) vive nos arquivos em `lib/fases/`.
 class GameBoard extends StatefulWidget {
   final Fase fase;
 
@@ -28,25 +22,22 @@ class _GameBoardState extends State<GameBoard> {
   late final Player player;
   late final Enemy enemy;
 
-  final fps = Duration(milliseconds: 50);
+  final fps = const Duration(milliseconds: 50);
   final plataformas = <Objects>[];
-  final tiros = <Objects>[]; // tiros do player
-  final enemyTiros = <Objects>[]; // tiros do inimigo
+  final tiros = <Objects>[]; 
+  final enemyTiros = <Objects>[];
 
   final keys = KeyMap();
 
-  // Vidas do player (barra de vida no topo).
   static const int _maxVidas = 3;
   int vidas = _maxVidas;
 
-  // Inimigo: velocidade lenta de perseguição e controle do cooldown do tiro.
   double enemyVelocidade = 3.0;
   bool _inimigoPodeAtirar = true;
 
-  // Atalhos para os dados específicos da fase atual.
   Fase get fase => widget.fase;
   LevelData get level => fase.level;
-  double get larguraDoMapa => fase.larguraDoMapa; // tamanho do mapa
+  double get larguraDoMapa => fase.larguraDoMapa;
   List<GroundSegment> get groundSegments => fase.groundSegments;
 
   double gravity = 10.0;
@@ -56,9 +47,21 @@ class _GameBoardState extends State<GameBoard> {
 
   Timer? timer;
   Size? screenSize;
-  bool _podeAtirar = true; // Controla o timeout do tiro
-  bool _pausado = false; // true enquanto o menu de pausa está aberto
-  final FocusNode _focusNode = FocusNode(); // foco do teclado da fase
+  bool _podeAtirar = true; 
+  bool _pausado = false; 
+  final FocusNode _focusNode = FocusNode();
+
+  // Estados de Conteúdo Didático e Quiz
+  bool _mostrandoConteudo = false;
+  bool _podeContinuarConteudo = false;
+  final ScrollController _conteudoScrollController = ScrollController();
+
+  bool _mostrandoQuiz = false;
+  bool _quizJaAberto = false;
+  int _perguntaAtualIndex = 0;
+  int? _alternativaSelecionada;
+  bool _respostaCorreta = false;
+  bool _respostaIncorreta = false;
 
   static const _groundHeight = 42.0;
   static const _taskbarHeight = 100.0;
@@ -74,90 +77,64 @@ class _GameBoardState extends State<GameBoard> {
 
   double get cameraX {
     if (screenSize == null) return 0;
-
-    // Cálculo original para centralizar a câmera no jogador
     double camX = player.x - screenSize!.width / 2 + player.width / 2;
-
-    // Se a câmera tentar ir além do início (0), ela trava em 0.
-    // Isso elimina a tela branca do começo do jogo!
     if (camX < 0) return 0;
-
-    //Se a câmera tentar passar do fim do cenário, ela trava também.
-    // Isso vai eliminar a tela branca do final do jogo!
     double maxCamX = larguraDoMapa - screenSize!.width;
     if (camX > maxCamX) return maxCamX;
-
     return camX;
   }
 
-  double get cameraY =>
-      0; // câmera fixa no Y — player sobe/desce na tela livremente
-
-  // Largura com que a arte de fundo é exibida quando escalada para preencher
-  // exatamente a altura do jogo (sem distorcer): altura × proporção da imagem.
+  double get cameraY => 0; 
   double get _bgDisplayWidth => _gameHeight * level.aspect;
 
-  // Deslocamento horizontal do cenário (efeito parallax, mais lento que o chão).
-  //
-  // Mapeia o trajeto da câmera [0 .. cameraMax] EXATAMENTE sobre o deslocamento
-  // possível da arte [0 .. larguraExibida - larguraDaTela]. Consequência:
-  //  - no início da fase, a borda esquerda da arte encosta na esquerda da tela;
-  //  - no fim da fase, a borda direita da arte encosta na direita da tela.
-  // Ou seja, quando o jogador chega ao fim do mapa a imagem também termina —
-  // sem "faltar um pedaço" da arte e sem faixa branca, em qualquer tela.
-  //
-  // Continua sendo parallax: como a arte exibida costuma ser mais estreita que
-  // o mapa, o fundo anda mais devagar que o chão (dá a sensação de profundidade).
   double get _bgOffsetX {
     if (screenSize == null) return 0;
     final screenW = screenSize!.width;
-
     final maxOffset = _bgDisplayWidth - screenW;
-    if (maxOffset <= 0) return 0; // a arte já cobre a largura da tela
-
+    if (maxOffset <= 0) return 0;
     final cameraMax = larguraDoMapa - screenW;
-    if (cameraMax <= 0) return 0; // mapa menor que a tela
-
-    final t = (cameraX / cameraMax).clamp(0.0, 1.0); // 0 no começo, 1 no fim
+    if (cameraMax <= 0) return 0;
+    final t = (cameraX / cameraMax).clamp(0.0, 1.0); 
     return t * maxOffset;
   }
 
   void spawnPLataformas() {
     plataformas.addAll(fase.criarPlataformas());
-
     update();
   }
 
   void update() {
     timer = Timer.periodic(fps, (t) {
-      if (_pausado) return; // menu aberto: a fase fica congelada ao fundo
+      if (_pausado || _mostrandoConteudo || _mostrandoQuiz) return; 
+
       player.y += player.velocity.y;
       player.x += player.velocity.x;
 
-      // 1. Bloqueia a saída pela esquerda (Início do cenário)
-      if (player.x < 0) {
-        player.x = 0;
-      }
-
-      // 2. Bloqueia a saída pela direita (Fim do cenário)
+      if (player.x < 0) player.x = 0;
       if (player.x > larguraDoMapa - player.width) {
         player.x = larguraDoMapa - player.width;
       }
 
-      // IA do inimigo: segue o player devagar e atira quando ele está por perto.
+      // Detecção de colisão com o Portal
+      double portalWidth = 128.0;
+      double portalHeight = 160.0;
+      double portalY = _groundY - portalHeight;
+
+      if (player.right > fase.portalEfetivo && player.left < fase.portalEfetivo + portalWidth) {
+        if (player.bottom > portalY) {
+          _abrirQuiz();
+        }
+      }
+
       if (enemy.vivo) {
         final dx = player.x - enemy.x;
-        enemy.position = dx < 0 ? 0 : 1; // vira para o lado do player
-
-        // Persegue de leve, mas para a uma certa distância (fica atirando).
+        enemy.position = dx < 0 ? 0 : 1;
         const distanciaParada = 250.0;
         if (dx.abs() > distanciaParada) {
           enemy.velocity.x = dx < 0 ? -enemyVelocidade : enemyVelocidade;
         } else {
           enemy.velocity.x = 0;
         }
-
-        // Só atira se o player estiver dentro do alcance (grosso modo, na tela).
         final alcance = screenSize?.width ?? 800;
         if (dx.abs() < alcance) {
           _dispararInimigo();
@@ -169,37 +146,28 @@ class _GameBoardState extends State<GameBoard> {
       enemy.y += enemy.velocity.y;
       enemy.x += enemy.velocity.x;
 
-      // Trava o inimigo dentro dos limites do mapa, igual ao player
-      if (enemy.x < 0) {
-        enemy.x = 0;
-      }
-      if (enemy.x > larguraDoMapa - enemy.width) {
-        enemy.x = larguraDoMapa - enemy.width;
-      }
+      if (enemy.x < 0) enemy.x = 0;
+      if (enemy.x > larguraDoMapa - enemy.width) enemy.x = larguraDoMapa - enemy.width;
 
       if (player.top > _gameHeight + 600) {
         reset();
       } else {
         player.velocity.y += gravity;
-        enemy.velocity.y += gravity; // era .x, isso fazia o inimigo acelerar pros lados em vez de cair
-
+        enemy.velocity.y += gravity; 
         isOnGround = false;
         isOnGroundEnemy = false;
       }
 
-      // Movimento para os lados
       if (keys.left) {
         player.velocity.x = -velocidade;
         player.position = 0;
       } else if (keys.right) {
         player.velocity.x = velocidade;
-
         player.position = 1;
       } else {
         player.velocity.x = 0;
       }
 
-      // Colisão com as plataformas flutuantes
       for (var plataforma in plataformas) {
         if (player.bottom <= plataforma.top &&
             player.bottom + player.velocity.y >= plataforma.top &&
@@ -211,11 +179,9 @@ class _GameBoardState extends State<GameBoard> {
         }
       }
 
-      // Colisão com o chão (segmentos)
       for (var seg in groundSegments) {
         if (player.right > seg.startX && player.left < seg.endX) {
-          if (player.bottom <= _groundY &&
-              player.bottom + player.velocity.y >= _groundY) {
+          if (player.bottom <= _groundY && player.bottom + player.velocity.y >= _groundY) {
             player.velocity.y = 0;
             player.y = _groundY - player.height;
             isOnGround = true;
@@ -223,7 +189,6 @@ class _GameBoardState extends State<GameBoard> {
         }
       }
 
-      // Colisão do inimigo com as plataformas flutuantes
       for (var plataforma in plataformas) {
         if (enemy.bottom <= plataforma.top &&
             enemy.bottom + enemy.velocity.y >= plataforma.top &&
@@ -235,11 +200,9 @@ class _GameBoardState extends State<GameBoard> {
         }
       }
 
-      // Colisão do inimigo com o chão (segmentos)
       for (var seg in groundSegments) {
         if (enemy.right > seg.startX && enemy.left < seg.endX) {
-          if (enemy.bottom <= _groundY &&
-              enemy.bottom + enemy.velocity.y >= _groundY) {
+          if (enemy.bottom <= _groundY && enemy.bottom + enemy.velocity.y >= _groundY) {
             enemy.velocity.y = 0;
             enemy.y = _groundY - enemy.height;
             isOnGroundEnemy = true;
@@ -247,25 +210,18 @@ class _GameBoardState extends State<GameBoard> {
         }
       }
 
-      // Tiro do player
       for (var tiro in tiros) {
-        // Se estiver invertido, subtrai 40 (vai para a esquerda), senão soma 40 (vai para a direita)
         tiro.x += tiro.invertido ? -40 : 40;
       }
       tiros.removeWhere((t) => t.left > player.x + screenSize!.width);
 
-      // Tiro do inimigo (um pouco mais lento que o do player)
       for (var tiro in enemyTiros) {
         tiro.x += tiro.invertido ? -18 : 18;
       }
-      // Remove os tiros do inimigo que saíram da tela (dos dois lados)
       final camEsq = cameraX - 100;
       final camDir = cameraX + (screenSize?.width ?? 0) + 100;
       enemyTiros.removeWhere((t) => t.right < camEsq || t.left > camDir);
 
-      // Colisão: tiro do inimigo acerta o player → perde uma vida.
-      // Detecta os acertos primeiro e só depois aplica o dano, porque
-      // _perderVida pode limpar a lista (evita ConcurrentModificationError).
       final acertosNoPlayer = enemyTiros
           .where((t) => _colide(t, player.left, player.top, player.right, player.bottom))
           .toList();
@@ -276,9 +232,7 @@ class _GameBoardState extends State<GameBoard> {
         }
       }
 
-      // Colisão: tiro do player acerta o inimigo → inimigo morre
-      if (enemy.vivo &&
-          tiros.any((t) => _colide(t, enemy.left, enemy.top, enemy.right, enemy.bottom))) {
+      if (enemy.vivo && tiros.any((t) => _colide(t, enemy.left, enemy.top, enemy.right, enemy.bottom))) {
         tiros.removeWhere((t) => _colide(t, enemy.left, enemy.top, enemy.right, enemy.bottom));
         enemy.vivo = false;
       }
@@ -288,37 +242,31 @@ class _GameBoardState extends State<GameBoard> {
   }
 
   void _executarDisparo() {
-    if (!_podeAtirar) return;
+    if (!_podeAtirar || _mostrandoConteudo || _mostrandoQuiz) return;
 
     setState(() {
       double posx = player.position == 0 ? player.left - 64 : player.right;
-
       tiros.add(
         Objects(
           width: 64,
           height: 24,
           x: posx,
           y: player.top + player.height / 2 - 6,
-          invertido:
-              player.position ==
-              0,
+          invertido: player.position == 0,
         ),
       );
       _podeAtirar = false;
     });
 
-    // Define o tempo de espera (300ms). Altere o valor se quiser mais rápido ou devagar.
     Future.delayed(const Duration(milliseconds: 300), () {
       _podeAtirar = true;
     });
   }
 
-  // Checagem simples de colisão (AABB) entre um objeto e um retângulo.
   bool _colide(Objects o, double left, double top, double right, double bottom) {
     return o.right > left && o.left < right && o.bottom > top && o.top < bottom;
   }
 
-  // O inimigo dispara um tiro na direção do player, respeitando o cooldown.
   void _dispararInimigo() {
     if (!_inimigoPodeAtirar || !enemy.vivo) return;
 
@@ -341,7 +289,6 @@ class _GameBoardState extends State<GameBoard> {
     });
   }
 
-  // Player leva um tiro: perde uma vida. Sem vidas, reinicia a fase.
   void _perderVida() {
     if (vidas <= 0) return;
     vidas--;
@@ -351,7 +298,6 @@ class _GameBoardState extends State<GameBoard> {
       tiros.clear();
       enemyTiros.clear();
 
-      // Revive e reposiciona o inimigo para um recomeço limpo.
       enemy.vivo = true;
       enemy.x = fase.enemyStartX;
       enemy.y = fase.enemyStartY;
@@ -364,11 +310,115 @@ class _GameBoardState extends State<GameBoard> {
 
   void reset() {
     player.position = 1;
-
     player.velocity.x = 0;
     player.velocity.y = 0;
     player.x = fase.playerStartX;
     player.y = fase.playerStartY;
+    _quizJaAberto = false;
+  }
+
+  void _abrirQuiz() {
+    if (_quizJaAberto) return;
+    _quizJaAberto = true;
+    
+    keys.left = false;
+    keys.right = false;
+    player.velocity.x = 0;
+
+    if (fase.perguntas == null || fase.perguntas!.isEmpty) {
+      _avancarFase();
+      return;
+    }
+
+    setState(() {
+      _mostrandoQuiz = true;
+      _perguntaAtualIndex = 0;
+      _alternativaSelecionada = null;
+      _respostaCorreta = false;
+      _respostaIncorreta = false;
+    });
+  }
+
+  void _responderQuiz(int index) {
+    if (_alternativaSelecionada != null) return;
+    
+    setState(() {
+      _alternativaSelecionada = index;
+    });
+
+    final pergunta = fase.perguntas![_perguntaAtualIndex];
+    if (index == pergunta.correta) {
+      setState(() => _respostaCorreta = true);
+      Future.delayed(const Duration(milliseconds: 1200), () {
+        if (!mounted) return;
+        if (_perguntaAtualIndex < fase.perguntas!.length - 1) {
+          setState(() {
+            _perguntaAtualIndex++;
+            _alternativaSelecionada = null;
+            _respostaCorreta = false;
+            _respostaIncorreta = false;
+          });
+        } else {
+          setState(() => _mostrandoQuiz = false);
+          _avancarFase();
+        }
+      });
+    } else {
+      setState(() => _respostaIncorreta = true);
+      Future.delayed(const Duration(milliseconds: 2000), () {
+        if (!mounted) return;
+        setState(() {
+          _alternativaSelecionada = null;
+          _respostaCorreta = false;
+          _respostaIncorreta = false;
+        });
+      });
+    }
+  }
+
+  void _avancarFase() {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: _menuInteriorTopo,
+        shape: RoundedRectangleBorder(
+          side: const BorderSide(color: _menuLaranja, width: 2),
+          borderRadius: BorderRadius.circular(16),
+        ),
+        title: const Text(
+          'FASE CONCLUÍDA!',
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            color: _menuLaranjaClara, 
+            fontWeight: FontWeight.bold,
+            letterSpacing: 2,
+          ),
+        ),
+        content: const Text(
+          'Você respondeu corretamente às perguntas e passou pelo portal!',
+          textAlign: TextAlign.center,
+          style: TextStyle(color: _menuCreme, fontSize: 16),
+        ),
+        actionsAlignment: MainAxisAlignment.center,
+        actions: [
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: _menuLaranja,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(8)
+              )
+            ),
+            onPressed: () {
+              Navigator.of(ctx).pop();
+              Navigator.of(context).pop(); 
+            },
+            child: const Text('AVANÇAR'),
+          )
+        ],
+      ),
+    );
   }
 
   @override
@@ -377,12 +427,35 @@ class _GameBoardState extends State<GameBoard> {
     player = Player(x: fase.playerStartX, y: fase.playerStartY);
     enemy = Enemy(x: fase.enemyStartX, y: fase.enemyStartY);
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+    
+    if (fase.conteudo != null && fase.conteudo!.isNotEmpty) {
+      _mostrandoConteudo = true;
+    }
+
+    _conteudoScrollController.addListener(() {
+      if (_conteudoScrollController.position.pixels >=
+          _conteudoScrollController.position.maxScrollExtent - 20) {
+        if (!_podeContinuarConteudo) {
+          setState(() => _podeContinuarConteudo = true);
+        }
+      }
+    });
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_mostrandoConteudo && _conteudoScrollController.hasClients) {
+        if (_conteudoScrollController.position.maxScrollExtent <= 0) {
+          setState(() => _podeContinuarConteudo = true);
+        }
+      }
+    });
+
     Timer(const Duration(seconds: 1), spawnPLataformas);
   }
 
   @override
   void dispose() {
     timer?.cancel();
+    _conteudoScrollController.dispose();
     _focusNode.dispose();
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     super.dispose();
@@ -397,170 +470,166 @@ class _GameBoardState extends State<GameBoard> {
         focusNode: _focusNode,
         autofocus: true,
         onKeyEvent: keyListener,
-        child: Column(
+        child: Stack(
           children: [
-            Expanded(
-              child: Container(
-                // Fundo preto de segurança: se por algum limite de tela a arte
-                // não cobrir 100% da área, o que sobra fica preto (nunca branco).
-                color: Colors.black,
-                child: Stack(
-                  children: [
-                    AnimatedPositioned(
-                      duration: fps,
-                      top: 0, // Começa no topo da tela
-                      // Parallax travado na borda da arte (ver _bgOffsetX):
-                      // move mais devagar que o chão, dando profundidade, mas
-                      // nunca passa do fim da imagem — sem faixa branca no fim.
-                      left: 0 - _bgOffsetX,
-                      // Uma única imagem, exibida na largura exata da arte
-                      // (altura do jogo × proporção). Sem repetição.
-                      width: _bgDisplayWidth,
-                      height:
-                          _gameHeight, // Preenche a altura do jogo perfeitamente
-                      child: Container(
-                        decoration: BoxDecoration(
-                          image: DecorationImage(
-                            image: AssetImage(level.backgroundImage),
-                            alignment: Alignment.topLeft,
-                            // fitHeight: preenche a altura sem distorcer; como a
-                            // caixa já tem a largura proporcional, a arte encaixa
-                            // inteira (do céu ao chão do desenho).
-                            fit: BoxFit.fitHeight,
+            Column(
+              children: [
+                Expanded(
+                  child: Container(
+                    color: Colors.black,
+                    child: Stack(
+                      children: [
+                        AnimatedPositioned(
+                          duration: fps,
+                          top: 0, 
+                          left: 0 - _bgOffsetX,
+                          width: _bgDisplayWidth,
+                          height: _gameHeight, 
+                          child: Container(
+                            decoration: BoxDecoration(
+                              image: DecorationImage(
+                                image: AssetImage(level.backgroundImage),
+                                alignment: Alignment.topLeft,
+                                fit: BoxFit.fitHeight,
+                              ),
+                            ),
                           ),
                         ),
-                      ),
+
+                        for (var seg in groundSegments) _buildGroundSegment(seg),
+
+                        // Portal
+                        AnimatedPositioned(
+                          key: const ValueKey('portal'),
+                          duration: fps,
+                          top: _groundY - 418 - cameraY,
+                          left: fase.portalEfetivo - cameraX,
+                          width: 512,
+                          height: 640,
+                          child: Image.asset(
+                            'lib/Images/portal.png',
+                            fit: BoxFit.contain,
+                          ),
+                        ),
+
+                        for (var plataforma in plataformas)
+                          AnimatedPositioned(
+                            key: ValueKey(plataforma),
+                            top: plataforma.y - cameraY,
+                            left: plataforma.x - cameraX,
+                            width: plataforma.width,
+                            height: plataforma.height,
+                            duration: fps,
+                            child: Container(
+                              decoration: BoxDecoration(
+                                image: DecorationImage(
+                                  image: AssetImage(plataforma.currentSpritePlataforma),
+                                  fit: BoxFit.contain,
+                                ),
+                              ),
+                            ),
+                          ),
+
+                        for (var tiro in tiros)
+                          AnimatedPositioned(
+                            key: ValueKey(tiro),
+                            top: tiro.y - cameraY,
+                            left: tiro.x - cameraX,
+                            width: tiro.width,
+                            height: tiro.height,
+                            duration: fps,
+                            child: Transform.flip(
+                              flipX: tiro.invertido,
+                              child: Container(
+                                decoration: BoxDecoration(
+                                  image: DecorationImage(
+                                    image: AssetImage(tiro.currentSpriteTiro),
+                                    fit: BoxFit.contain,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+
+                        for (var tiro in enemyTiros)
+                          AnimatedPositioned(
+                            key: ValueKey(tiro),
+                            top: tiro.y - cameraY,
+                            left: tiro.x - cameraX,
+                            width: tiro.width,
+                            height: tiro.height,
+                            duration: fps,
+                            child: Transform.flip(
+                              flipX: tiro.invertido,
+                              child: Container(
+                                decoration: BoxDecoration(
+                                  image: DecorationImage(
+                                    image: AssetImage(tiro.currentSpriteTiro),
+                                    fit: BoxFit.contain,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+
+                        if (enemy.vivo)
+                          AnimatedPositioned(
+                            top: enemy.y - cameraY,
+                            left: enemy.x - cameraX,
+                            width: enemy.width,
+                            height: enemy.height,
+                            duration: fps,
+                            child: Transform.flip(
+                              flipX: enemy.position == 1,
+                              child: Container(
+                                decoration: BoxDecoration(
+                                  image: DecorationImage(
+                                    image: AssetImage(enemy.currentSprite),
+                                    fit: BoxFit.contain,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+
+                        AnimatedPositioned(
+                          top: player.y - cameraY,
+                          left: player.x - cameraX,
+                          width: player.width,
+                          height: player.height,
+                          duration: fps,
+                          child: Transform.flip(
+                            flipX: player.position == 0,
+                            child: Container(
+                              decoration: BoxDecoration(
+                                image: DecorationImage(
+                                  image: AssetImage(player.currentSprite),
+                                  fit: BoxFit.contain,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+
+                        Positioned(top: 16, left: 16, child: _buildBarraDeVida()),
+                        Positioned(top: 16, right: 16, child: _buildBotaoMenu()),
+                      ],
                     ),
-
-                    for (var seg in groundSegments) _buildGroundSegment(seg),
-
-                    for (var plataforma in plataformas)
-                      AnimatedPositioned(
-                        key: ValueKey(plataforma),
-                        top: plataforma.y - cameraY,
-                        left: plataforma.x - cameraX,
-                        width: plataforma.width,
-                        height: plataforma.height,
-                        duration: fps,
-                        child: Container(
-                          decoration: BoxDecoration(
-                            image: DecorationImage(
-                              image: AssetImage(
-                                plataforma.currentSpritePlataforma,
-                              ),
-                              fit: BoxFit.contain,
-                            ),
-                          ),
-                        ),
-                      ),
-
-                    for (var tiro in tiros)
-                      AnimatedPositioned(
-                        key: ValueKey(tiro),
-                        top: tiro.y - cameraY,
-                        left: tiro.x - cameraX,
-                        width: tiro.width,
-                        height: tiro.height,
-                        duration: fps,
-                        child: Transform.flip(
-                          flipX: tiro.invertido,
-
-                          child: Container(
-                            decoration: BoxDecoration(
-                              image: DecorationImage(
-                                image: AssetImage(tiro.currentSpriteTiro),
-                                fit: BoxFit.contain,
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-
-                    for (var tiro in enemyTiros)
-                      AnimatedPositioned(
-                        key: ValueKey(tiro),
-                        top: tiro.y - cameraY,
-                        left: tiro.x - cameraX,
-                        width: tiro.width,
-                        height: tiro.height,
-                        duration: fps,
-                        child: Transform.flip(
-                          flipX: tiro.invertido,
-                          child: Container(
-                            decoration: BoxDecoration(
-                              image: DecorationImage(
-                                image: AssetImage(tiro.currentSpriteTiro),
-                                fit: BoxFit.contain,
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-
-                    if (enemy.vivo)
-                      AnimatedPositioned(
-                        top: enemy.y - cameraY,
-                        left: enemy.x - cameraX,
-                        width: enemy.width,
-                        height: enemy.height,
-                        duration: fps,
-                        child: Transform.flip(
-                          // Espelha o sprite conforme o lado que o inimigo olha.
-                          // O sprite do inimigo nasce olhando para a ESQUERDA
-                          // (oposto ao do player), então espelhamos quando o
-                          // player está à direita (position == 1). Assim ele
-                          // sempre encara o alvo em vez de atirar de costas.
-                          flipX: enemy.position == 1,
-                          child: Container(
-                            decoration: BoxDecoration(
-                              image: DecorationImage(
-                                image: AssetImage(enemy.currentSprite),
-                                fit: BoxFit.contain,
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-
-                    AnimatedPositioned(
-                      top: player.y - cameraY,
-                      left: player.x - cameraX,
-                      width: player.width,
-                      height: player.height,
-                      duration: fps,
-                      child: Transform.flip(
-                        flipX: player.position == 0,
-
-                        // Flip horizontalmente se a tecla esquerda estiver pressionada
-                        child: Container(
-                          decoration: BoxDecoration(
-                            image: DecorationImage(
-                              // Pega dinamicamente o sprite que estiver ativo na classe Player
-                              image: AssetImage(player.currentSprite),
-                              fit: BoxFit.contain,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-
-                    // Barra de vida (fixa no topo da tela)
-                    Positioned(top: 16, left: 16, child: _buildBarraDeVida()),
-
-                    // Botão de menu / pausa (canto superior direito da fase).
-                    Positioned(top: 16, right: 16, child: _buildBotaoMenu()),
-                  ],
+                  ),
                 ),
-              ),
+                if (_isMobile) _buildTaskbar(),
+              ],
             ),
-            if (_isMobile) _buildTaskbar(),
+            
+            // Overlays Cobrindo o game inteiro
+            if (_mostrandoConteudo) Positioned.fill(child: _buildOverlayConteudo()),
+            if (_mostrandoQuiz) Positioned.fill(child: _buildOverlayQuiz()),
           ],
         ),
       ),
     );
   }
 
-  // Corações representando as vidas restantes do player.
   Widget _buildBarraDeVida() {
     return Row(
       children: [
@@ -578,8 +647,6 @@ class _GameBoardState extends State<GameBoard> {
     );
   }
 
-  // ---- Menu de pausa (canto superior direito) -------------------------------
-
   static const _menuLaranja = Color(0xFFFF8A00);
   static const _menuLaranjaClara = Color(0xFFFFC061);
   static const _menuLaranjaEscura = Color(0xFF6E3200);
@@ -587,7 +654,6 @@ class _GameBoardState extends State<GameBoard> {
   static const _menuInteriorTopo = Color(0xF21A1206);
   static const _menuInteriorBaixo = Color(0xF20A0702);
 
-  // Botão de menu no topo-direito (aparece dentro da fase).
   Widget _buildBotaoMenu() {
     return _painelTech(
       onTap: _abrirMenu,
@@ -596,7 +662,6 @@ class _GameBoardState extends State<GameBoard> {
     );
   }
 
-  // Abre o pop-up central, pausando a fase e mantendo-a congelada ao fundo.
   Future<void> _abrirMenu() async {
     setState(() => _pausado = true);
     final sair = await showDialog<bool>(
@@ -607,16 +672,13 @@ class _GameBoardState extends State<GameBoard> {
     );
     if (!mounted) return;
     if (sair == true) {
-      // Sai da fase → volta para a tela anterior (o seletor de mapas).
       Navigator.of(context).pop();
     } else {
-      // Fechou pelo CONTINUAR ou tocando fora: retoma o jogo.
       setState(() => _pausado = false);
-      _focusNode.requestFocus(); // devolve o foco do teclado à fase
+      _focusNode.requestFocus(); 
     }
   }
 
-  // Pop-up centralizado, no estilo dos painéis do jogo.
   Widget _dialogoPausa(BuildContext dialogContext) {
     return Dialog(
       backgroundColor: Colors.transparent,
@@ -625,7 +687,6 @@ class _GameBoardState extends State<GameBoard> {
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 340),
         child: Container(
-          // Moldura biselada laranja + brilho.
           padding: const EdgeInsets.all(3),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(20),
@@ -644,7 +705,6 @@ class _GameBoardState extends State<GameBoard> {
             ],
           ),
           child: Container(
-            // Interior escuro quente.
             padding: const EdgeInsets.fromLTRB(22, 20, 22, 22),
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(17),
@@ -713,7 +773,165 @@ class _GameBoardState extends State<GameBoard> {
     );
   }
 
-  // Um item (botão largo) do pop-up de menu.
+  // --- Overlay de Conteúdo Didático ---
+  Widget _buildOverlayConteudo() {
+    return Container(
+      color: Colors.black.withValues(alpha: 0.85),
+      alignment: Alignment.center,
+      padding: const EdgeInsets.all(24),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 750, maxHeight: 600),
+        child: _painelTech(
+          padding: const EdgeInsets.all(24),
+          onTap: () {}, 
+          child: Column(
+            children: [
+              Text(
+                fase.titulo?.toUpperCase() ?? 'CONTEÚDO',
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  color: _menuLaranja,
+                  fontWeight: FontWeight.w900,
+                  fontSize: 22,
+                  letterSpacing: 4,
+                ),
+              ),
+              const SizedBox(height: 16),
+              Expanded(
+                child: Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.black45,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: _menuLaranja.withValues(alpha: 0.3)),
+                  ),
+                  child: Scrollbar(
+                    controller: _conteudoScrollController,
+                    thumbVisibility: true,
+                    child: SingleChildScrollView(
+                      controller: _conteudoScrollController,
+                      child: Padding(
+                        padding: const EdgeInsets.only(right: 12.0),
+                        child: Text(
+                          fase.conteudo ?? '',
+                          style: const TextStyle(
+                            color: _menuCreme,
+                            fontSize: 16,
+                            height: 1.5,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 20),
+              Opacity(
+                opacity: _podeContinuarConteudo ? 1.0 : 0.4,
+                child: _itemMenu(
+                  icon: Icons.check,
+                  texto: 'COMEÇAR FASE',
+                  onTap: () {
+                    if (_podeContinuarConteudo) {
+                      setState(() => _mostrandoConteudo = false);
+                      _focusNode.requestFocus();
+                    }
+                  },
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  // --- Overlay de Quiz ---
+  Widget _buildOverlayQuiz() {
+    final pergunta = fase.perguntas![_perguntaAtualIndex];
+    
+    return Container(
+      color: Colors.black.withValues(alpha: 0.92),
+      alignment: Alignment.center,
+      padding: const EdgeInsets.all(24),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 800, maxHeight: 700),
+        child: _painelTech(
+          padding: const EdgeInsets.all(24),
+          onTap: () {},
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                'PORTAL - PERGUNTA ${_perguntaAtualIndex + 1} DE 5',
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  color: _menuLaranjaClara,
+                  fontWeight: FontWeight.w800,
+                  fontSize: 18,
+                  letterSpacing: 2,
+                ),
+              ),
+              const SizedBox(height: 16),
+              Expanded(
+                child: SingleChildScrollView(
+                  child: Text(
+                    pergunta.enunciado,
+                    style: const TextStyle(color: _menuCreme, fontSize: 18, height: 1.4),
+                    textAlign: TextAlign.center,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              ...List.generate(pergunta.alternativas.length, (i) {
+                bool isSelected = _alternativaSelecionada == i;
+                bool isCorrect = (isSelected && _respostaCorreta) || (_respostaIncorreta && pergunta.correta == i);
+                bool isWrong = isSelected && _respostaIncorreta;
+
+                Color btnColor = Colors.transparent;
+                Color borderColor = _menuLaranja.withValues(alpha: 0.5);
+                Color textColor = _menuCreme;
+
+                if (isCorrect) {
+                  btnColor = Colors.green.withValues(alpha: 0.4);
+                  borderColor = Colors.greenAccent;
+                  textColor = Colors.white;
+                } else if (isWrong) {
+                  btnColor = Colors.red.withValues(alpha: 0.4);
+                  borderColor = Colors.redAccent;
+                  textColor = Colors.white;
+                } else if (isSelected) {
+                  btnColor = _menuLaranja.withValues(alpha: 0.2);
+                  borderColor = _menuLaranja;
+                }
+
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 10),
+                  child: InkWell(
+                    onTap: () => _responderQuiz(i),
+                    borderRadius: BorderRadius.circular(10),
+                    child: Container(
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: btnColor,
+                        border: Border.all(color: borderColor, width: 1.5),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Text(
+                        pergunta.alternativas[i],
+                        style: TextStyle(color: textColor, fontSize: 15, fontWeight: FontWeight.w600),
+                      ),
+                    ),
+                  ),
+                );
+              }),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _itemMenu({
     required IconData icon,
     required String texto,
@@ -723,6 +941,8 @@ class _GameBoardState extends State<GameBoard> {
       onTap: onTap,
       padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
       child: Row(
+        mainAxisSize: MainAxisSize.min,
+        mainAxisAlignment: MainAxisAlignment.center,
         children: [
           Icon(icon, color: _menuLaranjaClara, size: 24),
           const SizedBox(width: 14),
@@ -740,7 +960,6 @@ class _GameBoardState extends State<GameBoard> {
     );
   }
 
-  // Moldura "tech" biselada laranja (assinatura visual do jogo), clicável.
   Widget _painelTech({
     required VoidCallback onTap,
     required Widget child,
@@ -799,7 +1018,6 @@ class _GameBoardState extends State<GameBoard> {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          // Controles de movimento (esquerda)
           Row(
             children: [
               _controlButton(
@@ -814,13 +1032,12 @@ class _GameBoardState extends State<GameBoard> {
               ),
             ],
           ),
-          // Ações (direita)
           Row(
             children: [
               _controlButton(
                 icon: Icons.arrow_upward,
                 onStart: () {
-                  if (isOnGround == true) {
+                  if (isOnGround == true && !_mostrandoConteudo && !_mostrandoQuiz) {
                     player.velocity.y = -velocidade * 4;
                   }
                 },
@@ -828,7 +1045,7 @@ class _GameBoardState extends State<GameBoard> {
               ),
               _controlButton(
                 icon: Icons.circle,
-                onStart: _executarDisparo, // Agora usa a função com trava
+                onStart: _executarDisparo, 
                 onEnd: () {},
               ),
             ],
@@ -844,19 +1061,10 @@ class _GameBoardState extends State<GameBoard> {
     required VoidCallback onEnd,
   }) {
     return Listener(
-      // HitTestBehavior.opaque garante que toda a área do botão seja clicável,
-      // mesmo as partes transparentes do Container.
       behavior: HitTestBehavior.opaque,
-
-      // O dedo tocou na tela (dentro do botão)
       onPointerDown: (_) => onStart(),
-
-      // O dedo saiu da tela (não importa se estava fora do botão, ele avisa!)
       onPointerUp: (_) => onEnd(),
-
-      // O sistema cancelou o toque (ex: o usuário recebeu uma ligação na hora)
       onPointerCancel: (_) => onEnd(),
-
       child: Container(
         width: 64,
         height: 64,
@@ -877,9 +1085,6 @@ class _GameBoardState extends State<GameBoard> {
 
     if (segRight <= 0 || segLeft >= screenW) return const SizedBox.shrink();
 
-    final visLeft = segLeft.clamp(0.0, screenW);
-    final visRight = segRight.clamp(0.0, screenW);
-
     return AnimatedPositioned(
       duration: fps,
       top: _groundY - cameraY,
@@ -899,21 +1104,19 @@ class _GameBoardState extends State<GameBoard> {
   }
 
   KeyEventResult keyListener(FocusNode node, KeyEvent event) {
-    var pressed = HardwareKeyboard.instance.isLogicalKeyPressed(
-      event.logicalKey,
-    );
+    var pressed = HardwareKeyboard.instance.isLogicalKeyPressed(event.logicalKey);
 
     if (event.logicalKey == LogicalKeyboardKey.arrowLeft) {
       keys.left = pressed;
     } else if (event.logicalKey == LogicalKeyboardKey.arrowRight) {
       keys.right = pressed;
     } else if (event.logicalKey == LogicalKeyboardKey.arrowUp) {
-      if (pressed && isOnGround == true) {
+      if (pressed && isOnGround == true && !_mostrandoConteudo && !_mostrandoQuiz) {
         player.velocity.y = -velocidade * 4;
       }
     } else if (event.logicalKey == LogicalKeyboardKey.space) {
       if (pressed) {
-        _executarDisparo(); // Dispara respeitando o cooldown e apenas no evento de pressionar
+        _executarDisparo();
       }
     }
 
