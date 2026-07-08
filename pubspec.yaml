@@ -61,6 +61,11 @@ flutter:
   assets:
     - sprites/
     - lib/Images/Menu/
+    - lib/Images/Fases/Andar1/
+    - lib/Images/Fases/Andar2/
+    - lib/Images/Fases/Andar3/
+    - lib/Images/Fases/Andar4/
+    - lib/Images/Fases/Andar5/
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images

@@ -57,6 +57,8 @@ class _GameBoardState extends State<GameBoard> {
   Timer? timer;
   Size? screenSize;
   bool _podeAtirar = true; // Controla o timeout do tiro
+  bool _pausado = false; // true enquanto o menu de pausa está aberto
+  final FocusNode _focusNode = FocusNode(); // foco do teclado da fase
 
   static const _groundHeight = 42.0;
   static const _taskbarHeight = 100.0;
@@ -91,6 +93,35 @@ class _GameBoardState extends State<GameBoard> {
   double get cameraY =>
       0; // câmera fixa no Y — player sobe/desce na tela livremente
 
+  // Largura com que a arte de fundo é exibida quando escalada para preencher
+  // exatamente a altura do jogo (sem distorcer): altura × proporção da imagem.
+  double get _bgDisplayWidth => _gameHeight * level.aspect;
+
+  // Deslocamento horizontal do cenário (efeito parallax, mais lento que o chão).
+  //
+  // Mapeia o trajeto da câmera [0 .. cameraMax] EXATAMENTE sobre o deslocamento
+  // possível da arte [0 .. larguraExibida - larguraDaTela]. Consequência:
+  //  - no início da fase, a borda esquerda da arte encosta na esquerda da tela;
+  //  - no fim da fase, a borda direita da arte encosta na direita da tela.
+  // Ou seja, quando o jogador chega ao fim do mapa a imagem também termina —
+  // sem "faltar um pedaço" da arte e sem faixa branca, em qualquer tela.
+  //
+  // Continua sendo parallax: como a arte exibida costuma ser mais estreita que
+  // o mapa, o fundo anda mais devagar que o chão (dá a sensação de profundidade).
+  double get _bgOffsetX {
+    if (screenSize == null) return 0;
+    final screenW = screenSize!.width;
+
+    final maxOffset = _bgDisplayWidth - screenW;
+    if (maxOffset <= 0) return 0; // a arte já cobre a largura da tela
+
+    final cameraMax = larguraDoMapa - screenW;
+    if (cameraMax <= 0) return 0; // mapa menor que a tela
+
+    final t = (cameraX / cameraMax).clamp(0.0, 1.0); // 0 no começo, 1 no fim
+    return t * maxOffset;
+  }
+
   void spawnPLataformas() {
     plataformas.addAll(fase.criarPlataformas());
 
@@ -99,6 +130,7 @@ class _GameBoardState extends State<GameBoard> {
 
   void update() {
     timer = Timer.periodic(fps, (t) {
+      if (_pausado) return; // menu aberto: a fase fica congelada ao fundo
       player.y += player.velocity.y;
       player.x += player.velocity.x;
 
@@ -351,6 +383,7 @@ class _GameBoardState extends State<GameBoard> {
   @override
   void dispose() {
     timer?.cancel();
+    _focusNode.dispose();
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     super.dispose();
   }
@@ -361,26 +394,28 @@ class _GameBoardState extends State<GameBoard> {
 
     return Scaffold(
       body: Focus(
+        focusNode: _focusNode,
         autofocus: true,
         onKeyEvent: keyListener,
         child: Column(
           children: [
             Expanded(
               child: Container(
+                // Fundo preto de segurança: se por algum limite de tela a arte
+                // não cobrir 100% da área, o que sobra fica preto (nunca branco).
+                color: Colors.black,
                 child: Stack(
                   children: [
                     AnimatedPositioned(
                       duration: fps,
                       top: 0, // Começa no topo da tela
-                      left:
-                          0 -
-                          (cameraX *
-                              0.4), // <--- O SEGREDO DO PARALLAX ESTÁ AQUI!
-                      // Multiplicar por 0.4 faz o fundo se mover mais devagar que o boneco,
-                      // dando uma sensação incrível de profundidade 3D no cenário.
-                      // Se quiser que ele se mova na MESMA velocidade exata do chão, deixe apenas: 0 - cameraX
-                      width:
-                          99999, // Largura gigante para a imagem se repetir infinitamente
+                      // Parallax travado na borda da arte (ver _bgOffsetX):
+                      // move mais devagar que o chão, dando profundidade, mas
+                      // nunca passa do fim da imagem — sem faixa branca no fim.
+                      left: 0 - _bgOffsetX,
+                      // Uma única imagem, exibida na largura exata da arte
+                      // (altura do jogo × proporção). Sem repetição.
+                      width: _bgDisplayWidth,
                       height:
                           _gameHeight, // Preenche a altura do jogo perfeitamente
                       child: Container(
@@ -388,6 +423,10 @@ class _GameBoardState extends State<GameBoard> {
                           image: DecorationImage(
                             image: AssetImage(level.backgroundImage),
                             alignment: Alignment.topLeft,
+                            // fitHeight: preenche a altura sem distorcer; como a
+                            // caixa já tem a largura proporcional, a arte encaixa
+                            // inteira (do céu ao chão do desenho).
+                            fit: BoxFit.fitHeight,
                           ),
                         ),
                       ),
@@ -503,6 +542,9 @@ class _GameBoardState extends State<GameBoard> {
 
                     // Barra de vida (fixa no topo da tela)
                     Positioned(top: 16, left: 16, child: _buildBarraDeVida()),
+
+                    // Botão de menu / pausa (canto superior direito da fase).
+                    Positioned(top: 16, right: 16, child: _buildBotaoMenu()),
                   ],
                 ),
               ),
@@ -529,6 +571,219 @@ class _GameBoardState extends State<GameBoard> {
             ),
           ),
       ],
+    );
+  }
+
+  // ---- Menu de pausa (canto superior direito) -------------------------------
+
+  static const _menuLaranja = Color(0xFFFF8A00);
+  static const _menuLaranjaClara = Color(0xFFFFC061);
+  static const _menuLaranjaEscura = Color(0xFF6E3200);
+  static const _menuCreme = Color(0xFFF6EAD0);
+  static const _menuInteriorTopo = Color(0xF21A1206);
+  static const _menuInteriorBaixo = Color(0xF20A0702);
+
+  // Botão de menu no topo-direito (aparece dentro da fase).
+  Widget _buildBotaoMenu() {
+    return _painelTech(
+      onTap: _abrirMenu,
+      padding: const EdgeInsets.all(9),
+      child: const Icon(Icons.menu, color: _menuLaranjaClara, size: 26),
+    );
+  }
+
+  // Abre o pop-up central, pausando a fase e mantendo-a congelada ao fundo.
+  Future<void> _abrirMenu() async {
+    setState(() => _pausado = true);
+    final sair = await showDialog<bool>(
+      context: context,
+      barrierDismissible: true,
+      barrierColor: Colors.black.withValues(alpha: 0.62),
+      builder: (dialogContext) => _dialogoPausa(dialogContext),
+    );
+    if (!mounted) return;
+    if (sair == true) {
+      // Sai da fase → volta para a tela anterior (o seletor de mapas).
+      Navigator.of(context).pop();
+    } else {
+      // Fechou pelo CONTINUAR ou tocando fora: retoma o jogo.
+      setState(() => _pausado = false);
+      _focusNode.requestFocus(); // devolve o foco do teclado à fase
+    }
+  }
+
+  // Pop-up centralizado, no estilo dos painéis do jogo.
+  Widget _dialogoPausa(BuildContext dialogContext) {
+    return Dialog(
+      backgroundColor: Colors.transparent,
+      elevation: 0,
+      insetPadding: const EdgeInsets.all(24),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 340),
+        child: Container(
+          // Moldura biselada laranja + brilho.
+          padding: const EdgeInsets.all(3),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(20),
+            gradient: const LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [_menuLaranjaClara, _menuLaranja, _menuLaranjaEscura],
+              stops: [0.0, 0.5, 1.0],
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: _menuLaranja.withValues(alpha: 0.5),
+                blurRadius: 28,
+                spreadRadius: 1,
+              ),
+            ],
+          ),
+          child: Container(
+            // Interior escuro quente.
+            padding: const EdgeInsets.fromLTRB(22, 20, 22, 22),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(17),
+              gradient: const LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [_menuInteriorTopo, _menuInteriorBaixo],
+              ),
+              border: Border.all(
+                color: _menuLaranja.withValues(alpha: 0.45),
+                width: 1,
+              ),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text(
+                  'MENU',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: _menuLaranja,
+                    fontWeight: FontWeight.w900,
+                    fontSize: 24,
+                    letterSpacing: 6,
+                    shadows: [
+                      const Shadow(color: _menuLaranja, blurRadius: 12),
+                      Shadow(
+                        color: _menuLaranja.withValues(alpha: 0.6),
+                        blurRadius: 24,
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Container(
+                  height: 2,
+                  margin: const EdgeInsets.symmetric(horizontal: 8),
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [
+                        Colors.transparent,
+                        _menuLaranja.withValues(alpha: 0.7),
+                        Colors.transparent,
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 20),
+                _itemMenu(
+                  icon: Icons.play_arrow_rounded,
+                  texto: 'CONTINUAR',
+                  onTap: () => Navigator.of(dialogContext).pop(false),
+                ),
+                const SizedBox(height: 14),
+                _itemMenu(
+                  icon: Icons.exit_to_app_rounded,
+                  texto: 'SAIR DA FASE',
+                  onTap: () => Navigator.of(dialogContext).pop(true),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  // Um item (botão largo) do pop-up de menu.
+  Widget _itemMenu({
+    required IconData icon,
+    required String texto,
+    required VoidCallback onTap,
+  }) {
+    return _painelTech(
+      onTap: onTap,
+      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+      child: Row(
+        children: [
+          Icon(icon, color: _menuLaranjaClara, size: 24),
+          const SizedBox(width: 14),
+          Text(
+            texto,
+            style: const TextStyle(
+              color: _menuCreme,
+              fontWeight: FontWeight.w800,
+              fontSize: 16,
+              letterSpacing: 2,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // Moldura "tech" biselada laranja (assinatura visual do jogo), clicável.
+  Widget _painelTech({
+    required VoidCallback onTap,
+    required Widget child,
+    required EdgeInsets padding,
+  }) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(13),
+        splashColor: _menuLaranja.withValues(alpha: 0.30),
+        highlightColor: _menuLaranja.withValues(alpha: 0.12),
+        child: Container(
+          padding: const EdgeInsets.all(2.5),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(13),
+            gradient: const LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [_menuLaranjaClara, _menuLaranja, _menuLaranjaEscura],
+              stops: [0.0, 0.5, 1.0],
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: _menuLaranja.withValues(alpha: 0.5),
+                blurRadius: 14,
+              ),
+            ],
+          ),
+          child: Container(
+            padding: padding,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(10),
+              gradient: const LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [_menuInteriorTopo, _menuInteriorBaixo],
+              ),
+              border: Border.all(
+                color: _menuLaranja.withValues(alpha: 0.45),
+                width: 1,
+              ),
+            ),
+            child: child,
+          ),
+        ),
+      ),
     );
   }
 

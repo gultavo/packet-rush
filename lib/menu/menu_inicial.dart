@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import '../game_board.dart';
-import '../fases/andar2_fase1.dart';
+import 'seletor_fases.dart';
 
 /// Tela inicial do jogo.
 ///
@@ -72,10 +71,10 @@ class MenuInicial extends StatelessWidget {
     );
   }
 
-  // CONTINUE → inicia a Fase 1 do Andar 2.
+  // CONTINUE → abre o seletor de fases.
   void _continuar(BuildContext context) {
     Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => GameBoard(fase: faseAndar2Fase1)),
+      MaterialPageRoute(builder: (_) => const SeletorFases()),
     );
   }
 
