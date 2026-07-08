@@ -505,8 +505,12 @@ class _GameBoardState extends State<GameBoard> {
                         height: enemy.height,
                         duration: fps,
                         child: Transform.flip(
-                          // Espelha o sprite conforme o lado que o inimigo está olhando
-                          flipX: enemy.position == 0,
+                          // Espelha o sprite conforme o lado que o inimigo olha.
+                          // O sprite do inimigo nasce olhando para a ESQUERDA
+                          // (oposto ao do player), então espelhamos quando o
+                          // player está à direita (position == 1). Assim ele
+                          // sempre encara o alvo em vez de atirar de costas.
+                          flipX: enemy.position == 1,
                           child: Container(
                             decoration: BoxDecoration(
                               image: DecorationImage(
