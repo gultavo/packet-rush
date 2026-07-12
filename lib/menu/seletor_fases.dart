@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import '../game_board.dart';
-import '../fases/todas_as_fases.dart';
+import '../data/progresso_service.dart';
 import 'seletor_fases_do_andar.dart';
 
 /// Tela de seleção de camadas (andares) — usa a arte `MenuJogar.png`.
@@ -61,13 +61,17 @@ class SeletorFases extends StatelessWidget {
               _hotspot(geo, _btnEnlace, camadas[2]!.cor, () => _abrirAndar(context, 2)),
               _hotspot(geo, _btnFisica, camadas[1]!.cor, () => _abrirAndar(context, 1)),
 
-              // CONTINUAR → fase atual do jogador (hoje = Fase 1; futuro = DB).
+              // CONTINUAR → fase de continuação, vinda do progresso salvo no
+              // banco (primeira fase se o jogador ainda não concluiu nenhuma).
               _hotspot(
                 geo,
                 _btnContinuar,
                 const Color(0xFFFF8A00),
                 () => Navigator.of(context).push(
-                  MaterialPageRoute(builder: (_) => GameBoard(fase: faseAtual)),
+                  MaterialPageRoute(
+                    builder: (_) =>
+                        GameBoard(fase: ProgressoService.instance.faseParaContinuar),
+                  ),
                 ),
               ),
             ],

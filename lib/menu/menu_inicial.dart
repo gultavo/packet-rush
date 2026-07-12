@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'seletor_fases.dart';
+import 'configuracoes.dart';
 
 /// Tela inicial do jogo.
 ///
@@ -78,13 +79,10 @@ class MenuInicial extends StatelessWidget {
     );
   }
 
-  // OPTIONS → ainda não implementado.
+  // OPTIONS → abre a tela de Configurações (DEV, música).
   void _opcoes(BuildContext context) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Opções: em breve'),
-        duration: Duration(seconds: 1),
-      ),
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const Configuracoes()),
     );
   }
 

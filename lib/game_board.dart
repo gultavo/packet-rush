@@ -8,6 +8,8 @@ import 'package:flutter/services.dart';
 import 'objects.dart';
 import 'levels.dart';
 import 'fases/fase.dart';
+import 'fases/fase_content.dart';
+import 'data/progresso_service.dart';
 
 class GameBoard extends StatefulWidget {
   final Fase fase;
@@ -56,12 +58,21 @@ class _GameBoardState extends State<GameBoard> {
   bool _podeContinuarConteudo = false;
   final ScrollController _conteudoScrollController = ScrollController();
 
+  // Tela de "Fase concluída" mostrada ao alcançar o portal, antes do quiz.
+  bool _mostrandoPortal = false;
+  bool _portalAtivado = false; // trava para não reabrir a cada frame
+
   bool _mostrandoQuiz = false;
   bool _quizJaAberto = false;
+  // Perguntas da rodada atual, com as alternativas já embaralhadas. Preenchida
+  // ao abrir o quiz para que a resposta certa não caia sempre na mesma letra.
+  List<Pergunta> _perguntasQuiz = [];
   int _perguntaAtualIndex = 0;
   int? _alternativaSelecionada;
   bool _respostaCorreta = false;
   bool _respostaIncorreta = false;
+  // Estrelas: conta quantas das 5 perguntas o jogador acertou.
+  int _acertos = 0;
 
   static const _groundHeight = 42.0;
   static const _taskbarHeight = 100.0;
@@ -105,7 +116,7 @@ class _GameBoardState extends State<GameBoard> {
 
   void update() {
     timer = Timer.periodic(fps, (t) {
-      if (_pausado || _mostrandoConteudo || _mostrandoQuiz) return; 
+      if (_pausado || _mostrandoConteudo || _mostrandoQuiz || _mostrandoPortal) return;
 
       player.y += player.velocity.y;
       player.x += player.velocity.x;
@@ -115,15 +126,18 @@ class _GameBoardState extends State<GameBoard> {
         player.x = larguraDoMapa - player.width;
       }
 
-      // Detecção de colisão com o Portal
-      double portalWidth = 128.0;
-      double portalHeight = 160.0;
-      double portalY = _groundY - portalHeight;
-
-      if (player.right > fase.portalEfetivo && player.left < fase.portalEfetivo + portalWidth) {
-        if (player.bottom > portalY) {
-          _abrirQuiz();
-        }
+      // Portal ao final da fase. A arte é desenhada num box de 512px de largura
+      // a partir de fase.portalEfetivo; o centro visual do portal fica em ~0.514
+      // dessa largura (medido na arte), ou seja portalEfetivo + 263.
+      // A hitbox é uma faixa centrada nesse ponto: basta o centro do jogador
+      // entrar nela para abrir a tela de "Fase concluída".
+      const double portalCentroOffset = 263.0;
+      const double portalHitboxMeiaLargura = 60.0;
+      final double portalCentroX = fase.portalEfetivo + portalCentroOffset;
+      final double playerCentroX = player.x + player.width / 2;
+      if (!_portalAtivado &&
+          (playerCentroX - portalCentroX).abs() < portalHitboxMeiaLargura) {
+        _encostarPortal();
       }
 
       if (enemy.vivo) {
@@ -242,7 +256,7 @@ class _GameBoardState extends State<GameBoard> {
   }
 
   void _executarDisparo() {
-    if (!_podeAtirar || _mostrandoConteudo || _mostrandoQuiz) return;
+    if (!_podeAtirar || _mostrandoConteudo || _mostrandoQuiz || _mostrandoPortal) return;
 
     setState(() {
       double posx = player.position == 0 ? player.left - 64 : player.right;
@@ -315,20 +329,40 @@ class _GameBoardState extends State<GameBoard> {
     player.x = fase.playerStartX;
     player.y = fase.playerStartY;
     _quizJaAberto = false;
+    _portalAtivado = false;
+    _mostrandoPortal = false;
+  }
+
+  /// Chamado quando o jogador encosta no portal. Congela o jogador e mostra a
+  /// tela de "Fase concluída" com o botão SEGUIR, que então abre o quiz.
+  void _encostarPortal() {
+    if (_portalAtivado) return;
+    _portalAtivado = true;
+
+    keys.left = false;
+    keys.right = false;
+    player.velocity.x = 0;
+
+    setState(() => _mostrandoPortal = true);
   }
 
   void _abrirQuiz() {
     if (_quizJaAberto) return;
     _quizJaAberto = true;
-    
+
     keys.left = false;
     keys.right = false;
     player.velocity.x = 0;
 
+    // Fase sem quiz: conclui direto com estrelas cheias.
     if (fase.perguntas == null || fase.perguntas!.isEmpty) {
+      _acertos = 5;
       _avancarFase();
       return;
     }
+
+    // Embaralha as alternativas de cada pergunta para esta rodada do quiz.
+    _perguntasQuiz = [for (final p in fase.perguntas!) p.embaralhada()];
 
     setState(() {
       _mostrandoQuiz = true;
@@ -336,88 +370,164 @@ class _GameBoardState extends State<GameBoard> {
       _alternativaSelecionada = null;
       _respostaCorreta = false;
       _respostaIncorreta = false;
+      _acertos = 0;
     });
   }
 
   void _responderQuiz(int index) {
     if (_alternativaSelecionada != null) return;
-    
+
+    final pergunta = _perguntasQuiz[_perguntaAtualIndex];
+    final acertou = index == pergunta.correta;
+    if (acertou) _acertos++;
+
     setState(() {
       _alternativaSelecionada = index;
+      _respostaCorreta = acertou;
+      _respostaIncorreta = !acertou;
     });
 
-    final pergunta = fase.perguntas![_perguntaAtualIndex];
-    if (index == pergunta.correta) {
-      setState(() => _respostaCorreta = true);
-      Future.delayed(const Duration(milliseconds: 1200), () {
-        if (!mounted) return;
-        if (_perguntaAtualIndex < fase.perguntas!.length - 1) {
-          setState(() {
-            _perguntaAtualIndex++;
-            _alternativaSelecionada = null;
-            _respostaCorreta = false;
-            _respostaIncorreta = false;
-          });
-        } else {
-          setState(() => _mostrandoQuiz = false);
-          _avancarFase();
-        }
-      });
-    } else {
-      setState(() => _respostaIncorreta = true);
-      Future.delayed(const Duration(milliseconds: 2000), () {
-        if (!mounted) return;
+    // Certa ou errada, a resposta é aceita e o quiz segue para a próxima
+    // pergunta (a errada não se repete). As 5 estrelas refletem os acertos
+    // reais. Ao errar, damos um tempo maior para o jogador ver a correta.
+    Future.delayed(Duration(milliseconds: acertou ? 1200 : 2000), () {
+      if (!mounted) return;
+      if (_perguntaAtualIndex < _perguntasQuiz.length - 1) {
         setState(() {
+          _perguntaAtualIndex++;
           _alternativaSelecionada = null;
           _respostaCorreta = false;
           _respostaIncorreta = false;
         });
-      });
-    }
+      } else {
+        setState(() => _mostrandoQuiz = false);
+        _avancarFase();
+      }
+    });
   }
 
+  /// Mínimo de acertos (de 5) para concluir a fase e destravar a próxima.
+  static const int _minAcertosParaPassar = 3;
+
   void _avancarFase() {
+    final aprovado = _acertos >= _minAcertosParaPassar;
+
+    // Só conclui/destrava se passou. Guarda o melhor resultado (estrelas).
+    if (aprovado) {
+      ProgressoService.instance.registrarConclusao(
+        fase.andar,
+        fase.numero,
+        _acertos,
+      );
+    }
+
+    _mostrarResultado(aprovado);
+  }
+
+  /// Reabre o quiz (com novas perguntas embaralhadas) após uma reprovação.
+  void _reabrirQuiz() {
+    _quizJaAberto = false;
+    _abrirQuiz();
+  }
+
+  void _mostrarResultado(bool aprovado) {
+    final corBorda = aprovado ? _menuLaranja : Colors.redAccent;
+
     showDialog(
       context: context,
       barrierDismissible: false,
       builder: (ctx) => AlertDialog(
         backgroundColor: _menuInteriorTopo,
         shape: RoundedRectangleBorder(
-          side: const BorderSide(color: _menuLaranja, width: 2),
+          side: BorderSide(color: corBorda, width: 2),
           borderRadius: BorderRadius.circular(16),
         ),
-        title: const Text(
-          'FASE CONCLUÍDA!',
+        title: Text(
+          aprovado ? 'FASE CONCLUÍDA!' : 'NÃO FOI DESSA VEZ',
           textAlign: TextAlign.center,
           style: TextStyle(
-            color: _menuLaranjaClara, 
+            color: aprovado ? _menuLaranjaClara : Colors.redAccent,
             fontWeight: FontWeight.bold,
             letterSpacing: 2,
           ),
         ),
-        content: const Text(
-          'Você respondeu corretamente às perguntas e passou pelo portal!',
-          textAlign: TextAlign.center,
-          style: TextStyle(color: _menuCreme, fontSize: 16),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              aprovado
+                  ? 'Você passou pelo portal!'
+                  : 'Você precisa de pelo menos $_minAcertosParaPassar acertos para passar. Tente novamente!',
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: _menuCreme, fontSize: 16),
+            ),
+            const SizedBox(height: 14),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                for (int i = 0; i < 5; i++)
+                  Icon(
+                    i < _acertos ? Icons.star_rounded : Icons.star_border_rounded,
+                    color: _menuLaranjaClara,
+                    size: 34,
+                    shadows: const [Shadow(color: _menuLaranja, blurRadius: 10)],
+                  ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            Text(
+              '$_acertos de 5 acertos',
+              style: const TextStyle(color: _menuLaranjaClara, fontSize: 13, letterSpacing: 1),
+            ),
+          ],
         ),
         actionsAlignment: MainAxisAlignment.center,
-        actions: [
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: _menuLaranja,
-              foregroundColor: Colors.white,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(8)
-              )
-            ),
-            onPressed: () {
-              Navigator.of(ctx).pop();
-              Navigator.of(context).pop(); 
-            },
-            child: const Text('AVANÇAR'),
-          )
-        ],
+        actions: aprovado
+            ? [
+                _botaoDialogo(
+                  texto: 'AVANÇAR',
+                  cor: _menuLaranja,
+                  onPressed: () {
+                    Navigator.of(ctx).pop();
+                    Navigator.of(context).pop();
+                  },
+                ),
+              ]
+            : [
+                _botaoDialogo(
+                  texto: 'TENTAR NOVAMENTE',
+                  cor: _menuLaranja,
+                  onPressed: () {
+                    Navigator.of(ctx).pop();
+                    _reabrirQuiz();
+                  },
+                ),
+                _botaoDialogo(
+                  texto: 'SAIR DA FASE',
+                  cor: const Color(0xFF6E3200),
+                  onPressed: () {
+                    Navigator.of(ctx).pop();
+                    Navigator.of(context).pop();
+                  },
+                ),
+              ],
       ),
+    );
+  }
+
+  Widget _botaoDialogo({
+    required String texto,
+    required Color cor,
+    required VoidCallback onPressed,
+  }) {
+    return ElevatedButton(
+      style: ElevatedButton.styleFrom(
+        backgroundColor: cor,
+        foregroundColor: Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+      ),
+      onPressed: onPressed,
+      child: Text(texto),
     );
   }
 
@@ -623,6 +733,7 @@ class _GameBoardState extends State<GameBoard> {
             
             // Overlays Cobrindo o game inteiro
             if (_mostrandoConteudo) Positioned.fill(child: _buildOverlayConteudo()),
+            if (_mostrandoPortal) Positioned.fill(child: _buildOverlayPortal()),
             if (_mostrandoQuiz) Positioned.fill(child: _buildOverlayQuiz()),
           ],
         ),
@@ -773,6 +884,67 @@ class _GameBoardState extends State<GameBoard> {
     );
   }
 
+  // --- Overlay de "Fase concluída" (ao alcançar o portal) ---
+  Widget _buildOverlayPortal() {
+    return Container(
+      // Escurece o mapa ao fundo (o jogo já está pausado por trás).
+      color: Colors.black.withValues(alpha: 0.72),
+      alignment: Alignment.center,
+      padding: const EdgeInsets.all(24),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 520),
+        child: _painelTech(
+          onTap: () {},
+          padding: const EdgeInsets.all(28),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(
+                Icons.flag_rounded,
+                color: _menuLaranjaClara,
+                size: 44,
+                shadows: [Shadow(color: _menuLaranja, blurRadius: 16)],
+              ),
+              const SizedBox(height: 14),
+              Text(
+                'FASE CONCLUÍDA',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: _menuLaranja,
+                  fontWeight: FontWeight.w900,
+                  fontSize: 26,
+                  letterSpacing: 4,
+                  shadows: [
+                    const Shadow(color: _menuLaranja, blurRadius: 12),
+                    Shadow(
+                      color: _menuLaranja.withValues(alpha: 0.6),
+                      blurRadius: 24,
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
+              const Text(
+                'Você chegou ao portal! Responda ao quiz para concluir.',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: _menuCreme, fontSize: 16, height: 1.4),
+              ),
+              const SizedBox(height: 26),
+              _itemMenu(
+                icon: Icons.arrow_forward_rounded,
+                texto: 'SEGUIR',
+                onTap: () {
+                  setState(() => _mostrandoPortal = false);
+                  _abrirQuiz();
+                },
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   // --- Overlay de Conteúdo Didático ---
   Widget _buildOverlayConteudo() {
     return Container(
@@ -848,7 +1020,7 @@ class _GameBoardState extends State<GameBoard> {
 
   // --- Overlay de Quiz ---
   Widget _buildOverlayQuiz() {
-    final pergunta = fase.perguntas![_perguntaAtualIndex];
+    final pergunta = _perguntasQuiz[_perguntaAtualIndex];
     
     return Container(
       color: Colors.black.withValues(alpha: 0.92),
@@ -863,7 +1035,7 @@ class _GameBoardState extends State<GameBoard> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Text(
-                'PORTAL - PERGUNTA ${_perguntaAtualIndex + 1} DE 5',
+                'PORTAL - PERGUNTA ${_perguntaAtualIndex + 1} DE ${_perguntasQuiz.length}',
                 textAlign: TextAlign.center,
                 style: const TextStyle(
                   color: _menuLaranjaClara,
@@ -1037,7 +1209,10 @@ class _GameBoardState extends State<GameBoard> {
               _controlButton(
                 icon: Icons.arrow_upward,
                 onStart: () {
-                  if (isOnGround == true && !_mostrandoConteudo && !_mostrandoQuiz) {
+                  if (isOnGround == true &&
+                      !_mostrandoConteudo &&
+                      !_mostrandoQuiz &&
+                      !_mostrandoPortal) {
                     player.velocity.y = -velocidade * 4;
                   }
                 },
@@ -1111,7 +1286,11 @@ class _GameBoardState extends State<GameBoard> {
     } else if (event.logicalKey == LogicalKeyboardKey.arrowRight) {
       keys.right = pressed;
     } else if (event.logicalKey == LogicalKeyboardKey.arrowUp) {
-      if (pressed && isOnGround == true && !_mostrandoConteudo && !_mostrandoQuiz) {
+      if (pressed &&
+          isOnGround == true &&
+          !_mostrandoConteudo &&
+          !_mostrandoQuiz &&
+          !_mostrandoPortal) {
         player.velocity.y = -velocidade * 4;
       }
     } else if (event.logicalKey == LogicalKeyboardKey.space) {

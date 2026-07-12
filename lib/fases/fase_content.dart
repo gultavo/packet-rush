@@ -1,7 +1,9 @@
-/// Dados didáticos de cada fase: texto de leitura e perguntas do quiz.
-///
-/// Os dados foram extraídos do documento PACKET~1.MD e mapeados para as
-/// 27 fases do jogo (5 mundos / andares).
+// Dados didáticos de cada fase: texto de leitura e perguntas do quiz.
+//
+// Os dados foram extraídos do documento PACKET~1.MD e mapeados para as
+// 27 fases do jogo (5 mundos / andares).
+
+import 'dart:math';
 
 class Pergunta {
   final String enunciado;
@@ -13,6 +15,22 @@ class Pergunta {
     required this.alternativas,
     required this.correta,
   });
+
+  /// Retorna uma cópia desta pergunta com as alternativas em ordem aleatória,
+  /// já com o índice [correta] ajustado para a nova posição da resposta certa.
+  ///
+  /// Assim a resposta correta não fica sempre na mesma letra: cada vez que o
+  /// quiz é aberto, as alternativas são reembaralhadas de forma independente.
+  Pergunta embaralhada([Random? random]) {
+    final r = random ?? Random();
+    // Embaralha os índices originais e remonta as alternativas nessa ordem.
+    final ordem = List<int>.generate(alternativas.length, (i) => i)..shuffle(r);
+    return Pergunta(
+      enunciado: enunciado,
+      alternativas: [for (final i in ordem) alternativas[i]],
+      correta: ordem.indexOf(correta),
+    );
+  }
 }
 
 class FaseContent {

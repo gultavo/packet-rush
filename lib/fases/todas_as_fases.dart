@@ -95,5 +95,28 @@ final List<List<Fase>> andares = [
   ],
 ];
 
-/// Fase "atual" do jogador — usada pelo botão CONTINUAR.
-Fase get faseAtual => andares.first.first;
+/// Todas as fases do jogo em uma única lista, na ordem em que são jogadas
+/// (andar 1 fase 1, ..., andar 1 fase 5, andar 2 fase 1, ...).
+List<Fase> get todasAsFases => andares.expand((andar) => andar).toList();
+
+/// A primeira fase do jogo (ponto de partida quando não há progresso salvo).
+Fase get primeiraFase => andares.first.first;
+
+/// Retorna a fase de um determinado [andar] e [numero], ou `null` se não existir.
+Fase? faseDe(int andar, int numero) {
+  for (final fase in todasAsFases) {
+    if (fase.andar == andar && fase.numero == numero) return fase;
+  }
+  return null;
+}
+
+/// Retorna a fase seguinte à de [andar]/[numero] na ordem global, ou `null`
+/// se aquela já for a última fase do jogo.
+Fase? proximaFaseApos(int andar, int numero) {
+  final fases = todasAsFases;
+  final indice = fases.indexWhere(
+    (f) => f.andar == andar && f.numero == numero,
+  );
+  if (indice < 0 || indice + 1 >= fases.length) return null;
+  return fases[indice + 1];
+}
