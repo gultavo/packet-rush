@@ -1,6 +1,9 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'data/configuracoes_service.dart';
 import 'data/database_helper.dart';
+import 'data/musica_service.dart';
 import 'data/progresso_service.dart';
 import 'menu/menu_inicial.dart';
 
@@ -13,6 +16,9 @@ Future<void> main() async {
   DatabaseHelper.inicializarFactory();
   await ProgressoService.instance.carregar();
   await ConfiguracoesService.instance.carregar();
+
+  // Trilha sonora do jogo, tocando em loop por trás de todas as telas.
+  unawaited(MusicaService.instance.iniciar());
 
   runApp(const MyApp());
 }

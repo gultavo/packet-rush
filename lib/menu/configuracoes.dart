@@ -1,12 +1,13 @@
 import 'package:flutter/material.dart';
 import '../data/configuracoes_service.dart';
+import '../data/musica_service.dart';
 
 /// Tela de Configurações, aberta pelo botão OPTIONS do menu inicial.
 ///
 /// Contém dois interruptores:
 ///  - DEV: quando ligado, libera todas as fases (para desenvolvimento/testes,
 ///    sem precisar concluí-las na ordem);
-///  - MÚSICA: liga/desliga a música (a reprodução em si será implementada depois).
+///  - MÚSICA: liga/desliga a trilha sonora do jogo.
 class Configuracoes extends StatefulWidget {
   const Configuracoes({super.key});
 
@@ -55,6 +56,7 @@ class _ConfiguracoesState extends State<Configuracoes> {
                 valor: _config.musicaLigada,
                 onChanged: (v) async {
                   await _config.setMusica(v);
+                  await MusicaService.instance.aplicarPreferencia();
                   setState(() {});
                 },
               ),

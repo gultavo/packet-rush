@@ -37,6 +37,7 @@ dependencies:
   sqflite: ^2.4.3
   sqflite_common_ffi: ^2.4.2
   path: ^1.9.1
+  audioplayers: ^6.8.1
 
 dev_dependencies:
   flutter_test:
@@ -70,6 +71,7 @@ flutter:
     - lib/Images/Fases/Andar3/
     - lib/Images/Fases/Andar4/
     - lib/Images/Fases/Andar5/
+    - lib/Music/
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images

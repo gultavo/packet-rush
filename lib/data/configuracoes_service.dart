@@ -8,7 +8,7 @@ import 'database_helper.dart';
 /// síncrona. Hoje guarda dois interruptores:
 ///  - [devMode]: quando ligado, libera todas as fases (para desenvolvimento e
 ///    testes, sem precisar concluí-las na ordem);
-///  - [musicaLigada]: preparado para a música que será implementada depois.
+///  - [musicaLigada]: liga/desliga a trilha sonora tocada por [MusicaService].
 class ConfiguracoesService {
   ConfiguracoesService._();
 
@@ -42,7 +42,7 @@ class ConfiguracoesService {
   /// Modo desenvolvedor: quando `true`, todas as fases ficam desbloqueadas.
   bool get devMode => _devMode;
 
-  /// Se a música do jogo deve tocar (a reprodução em si virá depois).
+  /// Se a música do jogo deve tocar.
   bool get musicaLigada => _musicaLigada;
 
   Future<void> setDevMode(bool valor) async {

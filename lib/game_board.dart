@@ -62,6 +62,9 @@ class _GameBoardState extends State<GameBoard> {
   bool _mostrandoPortal = false;
   bool _portalAtivado = false; // trava para não reabrir a cada frame
 
+  // Tela de "Game Over" mostrada quando o jogador perde todas as vidas.
+  bool _mostrandoGameOver = false;
+
   bool _mostrandoQuiz = false;
   bool _quizJaAberto = false;
   // Perguntas da rodada atual, com as alternativas já embaralhadas. Preenchida
@@ -116,7 +119,11 @@ class _GameBoardState extends State<GameBoard> {
 
   void update() {
     timer = Timer.periodic(fps, (t) {
-      if (_pausado || _mostrandoConteudo || _mostrandoQuiz || _mostrandoPortal) return;
+      if (_pausado ||
+          _mostrandoConteudo ||
+          _mostrandoQuiz ||
+          _mostrandoPortal ||
+          _mostrandoGameOver) return;
 
       player.y += player.velocity.y;
       player.x += player.velocity.x;
@@ -308,18 +315,35 @@ class _GameBoardState extends State<GameBoard> {
     vidas--;
 
     if (vidas <= 0) {
-      vidas = _maxVidas;
-      tiros.clear();
-      enemyTiros.clear();
-
-      enemy.vivo = true;
-      enemy.x = fase.enemyStartX;
-      enemy.y = fase.enemyStartY;
-      enemy.velocity.x = 0;
-      enemy.velocity.y = 0;
-
-      reset();
+      keys.left = false;
+      keys.right = false;
+      player.velocity.x = 0;
+      player.velocity.y = 0;
+      setState(() => _mostrandoGameOver = true);
     }
+  }
+
+  /// Chamado pelo botão "Reiniciar" da tela de Game Over: restaura vidas,
+  /// posição do jogador e do inimigo, e fecha o overlay.
+  void _reiniciarAposGameOver() {
+    vidas = _maxVidas;
+    tiros.clear();
+    enemyTiros.clear();
+
+    enemy.vivo = true;
+    enemy.x = fase.enemyStartX;
+    enemy.y = fase.enemyStartY;
+    enemy.velocity.x = 0;
+    enemy.velocity.y = 0;
+
+    reset();
+    setState(() => _mostrandoGameOver = false);
+    _focusNode.requestFocus();
+  }
+
+  /// Chamado pelo botão "Sair da Fase" da tela de Game Over.
+  void _sairDaFaseGameOver() {
+    Navigator.of(context).pop();
   }
 
   void reset() {
@@ -735,6 +759,7 @@ class _GameBoardState extends State<GameBoard> {
             if (_mostrandoConteudo) Positioned.fill(child: _buildOverlayConteudo()),
             if (_mostrandoPortal) Positioned.fill(child: _buildOverlayPortal()),
             if (_mostrandoQuiz) Positioned.fill(child: _buildOverlayQuiz()),
+            if (_mostrandoGameOver) Positioned.fill(child: _buildOverlayGameOver()),
           ],
         ),
       ),
@@ -937,6 +962,65 @@ class _GameBoardState extends State<GameBoard> {
                   setState(() => _mostrandoPortal = false);
                   _abrirQuiz();
                 },
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  // --- Overlay de "Game Over" (ao perder todas as vidas) ---
+  Widget _buildOverlayGameOver() {
+    return Container(
+      color: Colors.black.withValues(alpha: 0.82),
+      alignment: Alignment.center,
+      padding: const EdgeInsets.all(24),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 520),
+        child: _painelTech(
+          onTap: () {},
+          padding: const EdgeInsets.all(28),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(
+                Icons.heart_broken_rounded,
+                color: Colors.redAccent,
+                size: 44,
+                shadows: [Shadow(color: Colors.redAccent, blurRadius: 16)],
+              ),
+              const SizedBox(height: 14),
+              const Text(
+                'GAME OVER',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: Colors.redAccent,
+                  fontWeight: FontWeight.w900,
+                  fontSize: 26,
+                  letterSpacing: 4,
+                  shadows: [
+                    Shadow(color: Colors.redAccent, blurRadius: 12),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
+              const Text(
+                'Você perdeu todas as vidas.',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: _menuCreme, fontSize: 16, height: 1.4),
+              ),
+              const SizedBox(height: 26),
+              _itemMenu(
+                icon: Icons.refresh_rounded,
+                texto: 'REINICIAR',
+                onTap: _reiniciarAposGameOver,
+              ),
+              const SizedBox(height: 14),
+              _itemMenu(
+                icon: Icons.exit_to_app_rounded,
+                texto: 'SAIR DA FASE',
+                onTap: _sairDaFaseGameOver,
               ),
             ],
           ),
