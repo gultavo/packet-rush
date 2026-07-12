@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../game_board.dart';
 import '../data/progresso_service.dart';
 import 'seletor_fases_do_andar.dart';
+import '../orientacao.dart';
 
 /// Tela de seleção de camadas (andares) — usa a arte `MenuJogar.png`.
 ///
@@ -83,7 +84,9 @@ class SeletorFases extends StatelessWidget {
 
   void _abrirAndar(BuildContext context, int andar) {
     Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => SeletorFasesDoAndar(andar: andar)),
+      MaterialPageRoute(
+        builder: (_) => OrientacaoFixa(child: SeletorFasesDoAndar(andar: andar)),
+      ),
     );
   }
 

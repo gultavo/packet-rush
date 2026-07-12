@@ -1,4 +1,25 @@
+/// Tipo do inimigo. O boss é uma versão maior e mais resistente do inimigo
+/// normal: mesma IA (persegue e atira), mas 4x o tamanho, tiro 4x maior e
+/// aguenta 4 tiros do jogador antes de morrer.
+enum EnemyType { normal, boss }
+
 class Enemy {
+  /// Tamanho (largura e altura) do inimigo normal, em pixels de mundo.
+  static const double tamanhoNormal = 64;
+
+  /// Tamanho do tiro do inimigo normal.
+  static const double larguraTiroNormal = 64;
+  static const double alturaTiroNormal = 24;
+
+  /// Quanto o boss é maior que o inimigo normal — vale para o corpo dele e
+  /// para o tiro que ele dispara.
+  static const double escalaBoss = 4;
+
+  /// Quantos tiros do jogador o boss aguenta antes de morrer.
+  static const int vidaBoss = 4;
+
+  final EnemyType tipo;
+
   double x;
   double y;
 
@@ -7,7 +28,9 @@ class Enemy {
 
   double position;
 
-  bool vivo = true; // false quando o inimigo é atingido por um tiro do player
+  /// Tiros do jogador que este inimigo ainda aguenta. Chega a zero quando ele
+  /// morre (ver [vivo]).
+  int vida;
 
   // Cooldown de tiro próprio de cada inimigo (permite vários atirando de
   // forma independente, cada um no seu próprio ritmo).
@@ -15,16 +38,47 @@ class Enemy {
 
   Vector velocity = Vector(0, 0);
 
-  String currentSprite = 'sprites/enemy_1.png';
-
   Enemy({
     this.x = 0,
     this.y = 0,
-    this.width = 64,
-    this.height = 64,
+    this.tipo = EnemyType.normal,
+    double? width,
+    double? height,
+    this.position = 0,
+  })  : width = width ?? tamanhoDe(tipo),
+        height = height ?? tamanhoDe(tipo),
+        vida = tipo == EnemyType.boss ? vidaBoss : 1;
 
-    this.position = 0
-  });
+  /// Tamanho do corpo de cada tipo de inimigo.
+  static double tamanhoDe(EnemyType tipo) =>
+      tipo == EnemyType.boss ? tamanhoNormal * escalaBoss : tamanhoNormal;
+
+  bool get boss => tipo == EnemyType.boss;
+
+  /// Vivo enquanto ainda tiver vida. O normal morre no primeiro tiro; o boss,
+  /// no quarto.
+  bool get vivo => vida > 0;
+
+  /// Registra um tiro do jogador acertando este inimigo.
+  void levarTiro() {
+    if (vida > 0) vida--;
+  }
+
+  /// Sprite do corpo. O boss usa a de tiro o tempo todo, de propósito: a de
+  /// idle (`boss_1.png`) é um recorte de enquadramento diferente, então
+  /// alternar entre as duas fazia o boss mudar de tamanho na tela a cada
+  /// disparo. Como o cooldown dele é de 1200ms, ele ficava em pose de tiro
+  /// quase 100% do tempo de qualquer jeito — manter só essa sprite mata a
+  /// oscilação e não perde nada.
+  String get currentSprite =>
+      boss ? 'sprites/Boss_atirando.png' : 'sprites/enemy_1.png';
+
+  String get spriteTiro => boss ? 'sprites/Tiro_boss.png' : 'sprites/tiro.png';
+
+  double get larguraTiro =>
+      boss ? larguraTiroNormal * escalaBoss : larguraTiroNormal;
+  double get alturaTiro =>
+      boss ? alturaTiroNormal * escalaBoss : alturaTiroNormal;
 
   double get top => y;
   double get bottom => y + height;

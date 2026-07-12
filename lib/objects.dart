@@ -14,7 +14,7 @@ class Objects {
 
   Type type;
 
-  String currentSpriteTiro = 'sprites/tiro.png';
+  String currentSpriteTiro;
   String currentSpritePlataforma = 'sprites/plataforma_1.png';
 
   final bool invertido;
@@ -27,6 +27,7 @@ class Objects {
     this.height = 50,
     this.type = Type.plataforma,
     this.invertido  = false,
+    this.currentSpriteTiro = 'sprites/tiro.png',
   });
 
   double get top => y;

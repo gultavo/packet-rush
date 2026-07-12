@@ -6,6 +6,7 @@ import 'data/database_helper.dart';
 import 'data/musica_service.dart';
 import 'data/progresso_service.dart';
 import 'menu/menu_inicial.dart';
+import 'orientacao.dart';
 
 Future<void> main() async {
   // Necessário antes de usar plugins/serviços assíncronos fora do runApp.
@@ -35,7 +36,10 @@ class MyApp extends StatelessWidget {
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
       ),
-      home: const MenuInicial(),
+      // Todos os menus são desenhados em retrato: a rotação é pedida e a tela
+      // só aparece depois que o aparelho girou (ver [OrientacaoFixa]). Só a
+      // gameplay pode ir para paisagem, e ela cuida da própria orientação.
+      home: const OrientacaoFixa(child: MenuInicial()),
     );
   }
 }

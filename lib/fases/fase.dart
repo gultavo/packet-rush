@@ -1,3 +1,4 @@
+import '../enemy.dart';
 import '../levels.dart';
 import '../objects.dart';
 import 'fase_content.dart';
@@ -6,10 +7,15 @@ import 'fase_content.dart';
 /// (Y calculado automaticamente); passe [y] para nascer sobre uma
 /// plataforma elevada específica (ex.: `EnemySpawn(x, y: groundY - 190 - 64)`
 /// para nascer em cima de uma plataforma cujo topo fica em `groundY - 190`).
+///
+/// Passe `tipo: EnemyType.boss` para um inimigo 4x maior, com tiro 4x maior e
+/// que só morre com 4 tiros. Ao posicionar um boss sobre uma plataforma,
+/// lembre que ele é mais alto: o Y é `topoDaPlataforma - Enemy.tamanhoDe(tipo)`.
 class EnemySpawn {
   final double x;
   final double? y;
-  const EnemySpawn(this.x, {this.y});
+  final EnemyType tipo;
+  const EnemySpawn(this.x, {this.y, this.tipo = EnemyType.normal});
 }
 
 List<EnemySpawn> _inimigoPadrao(double groundY) => const [EnemySpawn(200)];

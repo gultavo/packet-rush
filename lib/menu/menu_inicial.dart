@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'seletor_fases.dart';
 import 'configuracoes.dart';
+import '../orientacao.dart';
 
 /// Tela inicial do jogo.
 ///
@@ -75,14 +76,18 @@ class MenuInicial extends StatelessWidget {
   // CONTINUE → abre o seletor de fases.
   void _continuar(BuildContext context) {
     Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => const SeletorFases()),
+      MaterialPageRoute(
+        builder: (_) => const OrientacaoFixa(child: SeletorFases()),
+      ),
     );
   }
 
   // OPTIONS → abre a tela de Configurações (DEV, música).
   void _opcoes(BuildContext context) {
     Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => const Configuracoes()),
+      MaterialPageRoute(
+        builder: (_) => const OrientacaoFixa(child: Configuracoes()),
+      ),
     );
   }
 

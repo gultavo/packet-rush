@@ -11,6 +11,7 @@ import 'fases/fase.dart';
 import 'fases/fase_content.dart';
 import 'data/progresso_service.dart';
 import 'data/configuracoes_service.dart';
+import 'orientacao.dart';
 
 class GameBoard extends StatefulWidget {
   final Fase fase;
@@ -20,6 +21,9 @@ class GameBoard extends StatefulWidget {
   @override
   State<GameBoard> createState() => _GameBoardState();
 }
+
+/// Os quatro botões de toque na tela.
+enum _Botao { esquerda, direita, pular, atirar }
 
 class _GameBoardState extends State<GameBoard> {
   late final Player player;
@@ -45,6 +49,21 @@ class _GameBoardState extends State<GameBoard> {
   double gravity = 10.0;
   double velocidade = 20.0;
   bool? isOnGround = false;
+
+  /// Até onde o tiro do JOGADOR viaja, em pixels de MUNDO.
+  ///
+  /// Era `_larguraVisivel` — ou seja, o alcance da arma dependia do formato
+  /// da tela. Em paisagem o jogador acertava a ~1440px; em retrato, a ~333px,
+  /// e o tiro sumia no ar antes de chegar no alvo. Isso contradiz o motivo de
+  /// o mundo ter altura fixa (a jogabilidade não deve mudar com a
+  /// orientação), e quebrava justamente o boss: a esfera dele tem 256px e
+  /// nasce colada nele, então em retrato a faixa em que o jogador alcançava o
+  /// boss e a faixa em que a esfera nascia em cima dele quase não se cruzavam.
+  ///
+  /// O alcance do INIMIGO continua sendo a largura visível de propósito ("se
+  /// eu te vejo, você me vê") — quem é limitado pela tela é quem atira em
+  /// você, não a sua arma.
+  static const double _alcanceTiroPlayer = 900.0;
 
   // Tamanho do pulo: o modo DEV mantém o pulo grande (útil para navegar
   // rápido pelas fases em teste); o modo normal usa um pulo mais contido,
@@ -82,6 +101,10 @@ class _GameBoardState extends State<GameBoard> {
   bool _mostrandoPortal = false;
   bool _portalAtivado = false; // trava para não reabrir a cada frame
 
+  // Fase encerrada: o jogador chegou ao portal. A simulação fica congelada
+  // do portal até o fim do quiz e do diálogo de resultado.
+  bool _faseEncerrada = false;
+
   // Tela de "Game Over" mostrada quando o jogador perde todas as vidas.
   bool _mostrandoGameOver = false;
 
@@ -102,6 +125,29 @@ class _GameBoardState extends State<GameBoard> {
   bool get _isMobile =>
       defaultTargetPlatform == TargetPlatform.android ||
       defaultTargetPlatform == TargetPlatform.iOS;
+
+  // ── Layout dos controles ──────────────────────────────────────────────
+
+  /// Lado de cada botão de toque, em pixels de tela. Em paisagem sobra
+  /// bastante tela e o celular é segurado com as duas mãos, então os botões
+  /// podem (e devem) ser maiores que na barra do retrato.
+  double get _ladoBotao => _emPaisagem ? 96.0 : 72.0;
+
+  /// Orientação em que a tela está sendo desenhada agora. Definida no build.
+  bool _emPaisagem = false;
+
+  /// Altura da barra preta de controles no modo retrato (sem contar o inset
+  /// do sistema). Cabem os botões (72) + a margem deles (8 de cada lado) +
+  /// uma folga acima e abaixo.
+  static const double _alturaBarraControles = 112.0;
+
+  /// Recuo dos clusters em paisagem. Os controles flutuam sobre o jogo e vão
+  /// para os cantos inferiores da tela, o mais para fora possível: o recuo é
+  /// zero e o único afastamento das bordas é a margem do próprio botão (8px)
+  /// mais o viewPadding do aparelho (notch/barra de navegação), que não pode
+  /// ser invadido.
+  static const double _recuoLateralPaisagem = 0.0;
+  static const double _recuoInferiorPaisagem = 0.0;
 
   // ── Mundo de altura lógica fixa ───────────────────────────────────────
   //
@@ -210,6 +256,7 @@ class _GameBoardState extends State<GameBoard> {
   void update() {
     timer = Timer.periodic(fps, (t) {
       if (_pausado ||
+          _faseEncerrada ||
           _mostrandoConteudo ||
           _mostrandoQuiz ||
           _mostrandoPortal ||
@@ -346,7 +393,9 @@ class _GameBoardState extends State<GameBoard> {
       for (var tiro in tiros) {
         tiro.x += tiro.invertido ? -40 : 40;
       }
-      tiros.removeWhere((t) => t.left > player.x + _larguraVisivel);
+      tiros.removeWhere(
+        (t) => (t.left - player.x).abs() > _alcanceTiroPlayer,
+      );
 
       for (var tiro in enemyTiros) {
         tiro.x += tiro.invertido ? -18 : 18;
@@ -366,10 +415,16 @@ class _GameBoardState extends State<GameBoard> {
       }
 
       for (final inimigo in enemies) {
-        if (inimigo.vivo &&
-            tiros.any((t) => _colide(t, inimigo.left, inimigo.top, inimigo.right, inimigo.bottom))) {
-          tiros.removeWhere((t) => _colide(t, inimigo.left, inimigo.top, inimigo.right, inimigo.bottom));
-          inimigo.vivo = false;
+        if (!inimigo.vivo) continue;
+        // Cada tiro que acerta tira uma vida: o inimigo normal morre no
+        // primeiro, o boss só no quarto.
+        final acertos = tiros
+            .where((t) => _colide(t, inimigo.left, inimigo.top, inimigo.right, inimigo.bottom))
+            .toList();
+        if (acertos.isEmpty) continue;
+        tiros.removeWhere(acertos.contains);
+        for (var _ in acertos) {
+          inimigo.levarTiro();
         }
       }
 
@@ -408,6 +463,22 @@ class _GameBoardState extends State<GameBoard> {
   static const double _insetTiroX = 0.225;
   static const double _insetTiroY = 0.275;
 
+  // Teto do inset do ALVO, em pixels. A margem vazia de um sprite é mais ou
+  // menos constante em pixels, mas o inset é uma porcentagem — então num
+  // sprite grande ele vira um buraco enorme. No boss (256px), 15% de altura
+  // são 38px: a caixa de dano dele começava 38px ACIMA dos pés, ou seja, as
+  // esteiras inteiras ficavam fora, e o tiro do jogador de pé no chão (que
+  // sai na cintura dele, a ~30px do chão) passava POR BAIXO do boss sem
+  // acertar nunca. Com o teto, os sprites normais (inimigo 64px → 9.6px,
+  // jogador 70px → 10.5px) ficam exatamente como estavam, e só o boss deixa
+  // de ter a zona morta.
+  static const double _maxInsetAlvo = 16.0;
+
+  static double _inset(double tamanho, double fracao) {
+    final valor = tamanho * fracao;
+    return valor > _maxInsetAlvo ? _maxInsetAlvo : valor;
+  }
+
   bool _colide(Objects o, double left, double top, double right, double bottom) {
     final tDx = o.width * _insetTiroX;
     final tDy = o.height * _insetTiroY;
@@ -416,8 +487,8 @@ class _GameBoardState extends State<GameBoard> {
     final tRight = o.right - tDx;
     final tBottom = o.bottom - tDy;
 
-    final aDx = (right - left) * _insetAlvoX;
-    final aDy = (bottom - top) * _insetAlvoY;
+    final aDx = _inset(right - left, _insetAlvoX);
+    final aDy = _inset(bottom - top, _insetAlvoY);
     final aLeft = left + aDx;
     final aTop = top + aDy;
     final aRight = right - aDx;
@@ -475,16 +546,32 @@ class _GameBoardState extends State<GameBoard> {
   void _dispararInimigo(Enemy inimigo) {
     if (!_jogadorJaSeMoveu || !inimigo.podeAtirar || !inimigo.vivo) return;
 
+    final larguraTiro = inimigo.larguraTiro;
+    final alturaTiro = inimigo.alturaTiro;
+
     final paraEsquerda = player.x < inimigo.x;
-    final posx = paraEsquerda ? inimigo.left - 64 : inimigo.right;
+    final posx = paraEsquerda ? inimigo.left - larguraTiro : inimigo.right;
+
+    // De que altura do corpo sai o tiro. O inimigo normal (64px) tem quase a
+    // altura do jogador (70px), então atirar da cintura dele acerta a cintura
+    // do jogador — funciona. O boss NÃO: com 256px de altura, a cintura dele
+    // fica a 128px do chão e o tiro passava inteiro POR CIMA da cabeça de um
+    // jogador de pé, que ficava simplesmente imune a ele. O boss atira rente
+    // ao chão (a caixa do tiro apoiada nos pés dele): a esfera de plasma vem
+    // na altura do peito do jogador, acerta quem está no chão e é desviada
+    // PULANDO por cima — que é o que a Fase 5 cobra.
+    final double ySaida = inimigo.boss
+        ? inimigo.bottom - alturaTiro
+        : inimigo.top + inimigo.height / 2 - alturaTiro / 2;
 
     enemyTiros.add(
       Objects(
-        width: 64,
-        height: 24,
+        width: larguraTiro,
+        height: alturaTiro,
         x: posx,
-        y: inimigo.top + inimigo.height / 2 - 12,
+        y: ySaida,
         invertido: paraEsquerda,
+        currentSpriteTiro: inimigo.spriteTiro,
       ),
     );
 
@@ -555,7 +642,14 @@ class _GameBoardState extends State<GameBoard> {
   /// tela) já é conhecido, isto é, depois do primeiro build.
   List<Enemy> _construirInimigos() => [
         for (final spawn in fase.criarInimigos(_groundY))
-          Enemy(x: spawn.x, y: spawn.y ?? (_groundY - 64)),
+          Enemy(
+            x: spawn.x,
+            // O boss é mais alto que o inimigo normal, então o Y de "em pé
+            // sobre o chão" depende do tipo — usar 64 fixo aqui enterraria
+            // o boss até a cintura.
+            y: spawn.y ?? (_groundY - Enemy.tamanhoDe(spawn.tipo)),
+            tipo: spawn.tipo,
+          ),
       ];
 
   /// Chamado quando o jogador encosta no portal. Congela o jogador e mostra a
@@ -567,6 +661,14 @@ class _GameBoardState extends State<GameBoard> {
     keys.left = false;
     keys.right = false;
     player.velocity.x = 0;
+
+    // A fase para AQUI e não volta a rodar: dali em diante é só tela de
+    // conclusão → quiz → resultado. Antes, o loop só era barrado pelos
+    // overlays (_mostrandoPortal/_mostrandoQuiz), então nas frestas entre
+    // eles — e durante todo o diálogo de resultado, que é um showDialog e
+    // não um overlay — o jogo voltava a simular no fundo: inimigos andavam,
+    // atiravam e podiam até matar o jogador enquanto ele respondia o quiz.
+    _faseEncerrada = true;
 
     setState(() => _mostrandoPortal = true);
   }
@@ -796,9 +898,11 @@ class _GameBoardState extends State<GameBoard> {
     _conteudoScrollController.dispose();
     _focusNode.dispose();
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
-    // Libera a rotação de novo ao sair da fase — mesmo comportamento livre
-    // que os menus já têm hoje.
-    SystemChrome.setPreferredOrientations(DeviceOrientation.values);
+    // Ao sair da fase já pede o retrato dos menus, em vez de liberar a
+    // rotação: assim, quem estava jogando deitado não cai num menu deitado —
+    // o giro começa aqui e o menu (que também espera a rotação terminar) só
+    // aparece quando a tela já estiver em pé.
+    aplicarOrientacao(retrato: true);
     super.dispose();
   }
 
@@ -813,17 +917,51 @@ class _GameBoardState extends State<GameBoard> {
   bool get _gameplayEmPaisagem =>
       ConfiguracoesService.instance.orientacaoPaisagem;
 
+  /// Orientação que a tela DEVE ter agora. Enquanto o aparelho ainda não
+  /// terminou de girar, o build não desenha nada além de preto (ver
+  /// [_orientacaoPronta]): antes, a tela nova (conteúdo, quiz, gameplay)
+  /// aparecia por um instante na orientação velha e depois "pulava" para o
+  /// lugar certo quando a rotação física terminava.
+  bool _retratoDesejado = true;
+
   void _definirOrientacao({required bool retrato}) {
-    SystemChrome.setPreferredOrientations(
-      retrato
-          ? [DeviceOrientation.portraitUp]
-          : [DeviceOrientation.landscapeLeft, DeviceOrientation.landscapeRight],
-    );
+    _retratoDesejado = retrato;
+    aplicarOrientacao(retrato: retrato);
   }
 
   @override
   Widget build(BuildContext context) {
-    screenSize = MediaQuery.of(context).size;
+    final mq = MediaQuery.of(context);
+
+    // Rotação em andamento: não desenha NADA da fase (nem jogo, nem overlay,
+    // nem controles) até a tela já estar na orientação certa. Não dá para
+    // usar o widget OrientacaoFixa aqui porque este build calcula screenSize
+    // e a escala do mundo a partir do MediaQuery — se ele rodasse durante a
+    // rotação, a fase seria montada com as medidas da orientação velha.
+    if (!orientacaoPronta(mq, retrato: _retratoDesejado)) {
+      return const TelaGirando();
+    }
+
+    final retrato = mq.orientation == Orientation.portrait;
+    _emPaisagem = !retrato;
+    final insetInferior = mq.viewPadding.bottom;
+
+    // Em retrato os controles ganham uma barra preta própria embaixo da
+    // tela (como uma taskbar), em vez de flutuarem por cima do jogo: o
+    // polegar cobria justamente o chão, onde tudo acontece. A barra também
+    // afasta os botões da faixa de gestos do sistema (barra de navegação),
+    // que roubava os toques colados na borda inferior.
+    //
+    // Em paisagem sobra largura de sobra, então os controles continuam
+    // flutuando sobre o jogo (sem barra), só que bem mais para dentro.
+    final alturaBarra =
+        (_isMobile && retrato) ? _alturaBarraControles + insetInferior : 0.0;
+
+    // O jogo enxerga apenas a área ACIMA da barra: a escala do mundo é
+    // calculada a partir dela, então nada do mundo fica escondido atrás dos
+    // controles. Só o que muda é a escala (em retrato o mundo fica um pouco
+    // menor e, portanto, vê-se um pouco mais de mapa à frente).
+    screenSize = Size(mq.size.width, mq.size.height - alturaBarra);
 
     return Scaffold(
       body: Focus(
@@ -836,7 +974,11 @@ class _GameBoardState extends State<GameBoard> {
             // × _alturaMundo) e só então escalado para caber exatamente na
             // tela. Assim a mesma geometria de fase serve para retrato e
             // paisagem — ver a nota em _alturaMundo.
-            Positioned.fill(
+            Positioned(
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: alturaBarra,
               child: ClipRect(
                 child: Container(
                   color: Colors.black,
@@ -1011,11 +1153,11 @@ class _GameBoardState extends State<GameBoard> {
             Positioned(top: 16, left: 16, child: _buildBarraDeVida()),
             Positioned(top: 16, right: 16, child: _buildBotaoMenu()),
 
-            // Controles flutuantes (estilo Minecraft mobile): sobrepostos
-            // ao jogo, um cluster em cada canto inferior, sem reservar
-            // espaço — o chão encosta na borda real da tela.
-            if (_isMobile) _buildControlesEsquerda(),
-            if (_isMobile) _buildControlesDireita(),
+            if (_isMobile)
+              if (alturaBarra > 0)
+                _buildBarraDeControles(alturaBarra, insetInferior)
+              else
+                ..._buildControlesFlutuantes(mq),
 
             // Overlays Cobrindo o game inteiro
             if (_mostrandoConteudo) Positioned.fill(child: _buildOverlayConteudo()),
@@ -1587,83 +1729,166 @@ class _GameBoardState extends State<GameBoard> {
     );
   }
 
-  // Cluster inferior esquerdo: mover esquerda/direita.
-  Widget _buildControlesEsquerda() {
+  // ── Controles de toque ────────────────────────────────────────────────
+  //
+  // Cada dedo (pointer) é rastreado individualmente e fica "grudado" no
+  // botão onde ele encostou até ser levantado:
+  //
+  //  - Multitoque: como cada botão tem seu próprio Listener e o estado é
+  //    guardado por id de pointer, andar + pular + atirar ao mesmo tempo
+  //    funciona — um dedo em um botão não cancela o dedo do outro.
+  //  - Captura do dedo: uma vez pressionado, o botão só solta no
+  //    pointerUp/pointerCancel daquele dedo. Se o dedo escorregar para fora
+  //    do botão mas continuar na tela, o botão CONTINUA pressionado (é o
+  //    comportamento de gamepad na tela: o polegar quase sempre desliza do
+  //    centro do botão durante o jogo, e antes isso soltava o comando no
+  //    meio de um pulo).
+  //
+  // Qual botão cada dedo está segurando. A chave é o id do pointer.
+  final Map<int, _Botao> _pointerDoBotao = {};
+
+  /// Botões pressionados agora (só para o destaque visual).
+  final Set<_Botao> _botoesPressionados = {};
+
+  void _pressionarControle(_Botao botao, int pointer) {
+    _pointerDoBotao[pointer] = botao;
+
+    switch (botao) {
+      case _Botao.esquerda:
+        keys.left = true;
+        _jogadorJaSeMoveu = true;
+      case _Botao.direita:
+        keys.right = true;
+        _jogadorJaSeMoveu = true;
+      case _Botao.pular:
+        if (isOnGround == true &&
+            !_mostrandoConteudo &&
+            !_mostrandoQuiz &&
+            !_mostrandoPortal) {
+          _jogadorJaSeMoveu = true;
+          player.velocity.y = -velocidade * _multiplicadorPulo;
+        }
+      case _Botao.atirar:
+        _executarDisparo();
+    }
+
+    setState(() => _botoesPressionados.add(botao));
+  }
+
+  void _soltarControle(int pointer) {
+    final botao = _pointerDoBotao.remove(pointer);
+    if (botao == null) return;
+
+    // O mesmo botão pode estar sendo segurado por mais de um dedo: só solta
+    // de verdade quando o último deles sair.
+    if (_pointerDoBotao.containsValue(botao)) return;
+
+    switch (botao) {
+      case _Botao.esquerda:
+        keys.left = false;
+      case _Botao.direita:
+        keys.right = false;
+      case _Botao.pular:
+      case _Botao.atirar:
+        break; // disparados no toque, não têm estado de "segurando".
+    }
+
+    setState(() => _botoesPressionados.remove(botao));
+  }
+
+  // Cluster de movimento: esquerda/direita.
+  List<Widget> get _botoesMovimento => [
+        _controlButton(icon: Icons.arrow_back, botao: _Botao.esquerda),
+        _controlButton(icon: Icons.arrow_forward, botao: _Botao.direita),
+      ];
+
+  // Cluster de ação: pular e atirar.
+  List<Widget> get _botoesAcao => [
+        _controlButton(icon: Icons.arrow_upward, botao: _Botao.pular),
+        _controlButton(icon: Icons.circle, botao: _Botao.atirar),
+      ];
+
+  /// Retrato: barra preta fixa na base da tela ("taskbar"), com o cluster de
+  /// movimento à esquerda e o de ação à direita. O jogo termina em cima
+  /// dela, então nenhum dedo cobre o chão.
+  Widget _buildBarraDeControles(double alturaBarra, double insetInferior) {
     return Positioned(
-      left: 16,
-      bottom: 16,
-      child: Row(
-        children: [
-          _controlButton(
-            icon: Icons.arrow_back,
-            onStart: () {
-              keys.left = true;
-              _jogadorJaSeMoveu = true;
-            },
-            onEnd: () => keys.left = false,
-          ),
-          _controlButton(
-            icon: Icons.arrow_forward,
-            onStart: () {
-              keys.right = true;
-              _jogadorJaSeMoveu = true;
-            },
-            onEnd: () => keys.right = false,
-          ),
-        ],
+      left: 0,
+      right: 0,
+      bottom: 0,
+      height: alturaBarra,
+      child: Container(
+        color: Colors.black,
+        // O inset é a faixa da barra de navegação do sistema: os botões
+        // ficam acima dela, mas o preto continua até a borda da tela.
+        padding: EdgeInsets.only(
+          bottom: insetInferior,
+          left: 16,
+          right: 16,
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Row(mainAxisSize: MainAxisSize.min, children: _botoesMovimento),
+            Row(mainAxisSize: MainAxisSize.min, children: _botoesAcao),
+          ],
+        ),
       ),
     );
   }
 
-  // Cluster inferior direito: pular e atirar.
-  Widget _buildControlesDireita() {
-    return Positioned(
-      right: 16,
-      bottom: 16,
-      child: Row(
-        children: [
-          _controlButton(
-            icon: Icons.arrow_upward,
-            onStart: () {
-              if (isOnGround == true &&
-                  !_mostrandoConteudo &&
-                  !_mostrandoQuiz &&
-                  !_mostrandoPortal) {
-                _jogadorJaSeMoveu = true;
-                player.velocity.y = -velocidade * _multiplicadorPulo;
-              }
-            },
-            onEnd: () {},
-          ),
-          _controlButton(
-            icon: Icons.circle,
-            onStart: _executarDisparo,
-            onEnd: () {},
-          ),
-        ],
+  /// Paisagem: controles flutuando sobre o jogo, um cluster grudado em cada
+  /// canto inferior da tela — o mais para fora que dá, sem invadir o
+  /// viewPadding do aparelho (notch e barra de navegação).
+  List<Widget> _buildControlesFlutuantes(MediaQueryData mq) {
+    // Nas laterais o viewPadding é ignorado de propósito: em paisagem ele
+    // aparece só de um lado (o do recorte de câmera / barra do sistema) e
+    // empurrava o cluster de movimento para o meio da tela, deixando os dois
+    // clusters desalinhados entre si. Os botões vão para os cantos de fato.
+    // Embaixo ele é respeitado, para não ficarem por baixo da barra de
+    // navegação.
+    final recuoEsquerda = _recuoLateralPaisagem;
+    final recuoDireita = _recuoLateralPaisagem;
+    final recuoBaixo = _recuoInferiorPaisagem + mq.viewPadding.bottom;
+
+    return [
+      Positioned(
+        left: recuoEsquerda,
+        bottom: recuoBaixo,
+        child: Row(mainAxisSize: MainAxisSize.min, children: _botoesMovimento),
       ),
-    );
+      Positioned(
+        right: recuoDireita,
+        bottom: recuoBaixo,
+        child: Row(mainAxisSize: MainAxisSize.min, children: _botoesAcao),
+      ),
+    ];
   }
 
-  Widget _controlButton({
-    required IconData icon,
-    required VoidCallback onStart,
-    required VoidCallback onEnd,
-  }) {
+  Widget _controlButton({required IconData icon, required _Botao botao}) {
+    final pressionado = _botoesPressionados.contains(botao);
+
     return Listener(
       behavior: HitTestBehavior.opaque,
-      onPointerDown: (_) => onStart(),
-      onPointerUp: (_) => onEnd(),
-      onPointerCancel: (_) => onEnd(),
+      // Depois do pointerDown, o Flutter entrega os eventos seguintes DESTE
+      // dedo sempre a este Listener, mesmo que ele saia da área do botão —
+      // é o que dá a captura de graça. Só precisamos não soltar antes do up.
+      onPointerDown: (e) => _pressionarControle(botao, e.pointer),
+      onPointerUp: (e) => _soltarControle(e.pointer),
+      onPointerCancel: (e) => _soltarControle(e.pointer),
       child: Container(
-        width: 64,
-        height: 64,
-        margin: const EdgeInsets.all(6),
+        width: _ladoBotao,
+        height: _ladoBotao,
+        margin: const EdgeInsets.all(8),
         decoration: BoxDecoration(
-          color: Colors.white24,
-          borderRadius: BorderRadius.circular(12),
+          color: pressionado ? Colors.white54 : Colors.white24,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+            color: pressionado ? Colors.white : Colors.white30,
+            width: 2,
+          ),
         ),
-        child: Icon(icon, color: Colors.white, size: 28),
+        child: Icon(icon, color: Colors.white, size: 32),
       ),
     );
   }
