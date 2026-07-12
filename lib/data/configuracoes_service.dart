@@ -5,10 +5,13 @@ import 'database_helper.dart';
 /// Preferências do app, persistidas na tabela `configuracoes` (chave/valor).
 ///
 /// Carregado uma vez no arranque para que a interface leia os valores de forma
-/// síncrona. Hoje guarda dois interruptores:
+/// síncrona. Hoje guarda três interruptores:
 ///  - [devMode]: quando ligado, libera todas as fases (para desenvolvimento e
 ///    testes, sem precisar concluí-las na ordem);
-///  - [musicaLigada]: liga/desliga a trilha sonora tocada por [MusicaService].
+///  - [musicaLigada]: liga/desliga a trilha sonora tocada por [MusicaService];
+///  - [orientacaoPaisagem]: se a gameplay das fases roda com o celular
+///    deitado (paisagem) ou em pé (retrato). Só afeta a fase em si — leitura
+///    de conteúdo, quiz e menus continuam sempre em retrato.
 class ConfiguracoesService {
   ConfiguracoesService._();
 
@@ -19,9 +22,11 @@ class ConfiguracoesService {
 
   static const String _chaveDev = 'dev_mode';
   static const String _chaveMusica = 'musica';
+  static const String _chaveOrientacao = 'orientacao_paisagem';
 
   bool _devMode = false;
   bool _musicaLigada = true; // padrão: música ligada quando existir.
+  bool _orientacaoPaisagem = true; // padrão: gameplay deitada.
 
   /// Lê as configurações salvas para a memória. Chame no arranque do app.
   Future<void> carregar() async {
@@ -35,6 +40,8 @@ class ConfiguracoesService {
           _devMode = ligado;
         case _chaveMusica:
           _musicaLigada = ligado;
+        case _chaveOrientacao:
+          _orientacaoPaisagem = ligado;
       }
     }
   }
@@ -45,6 +52,12 @@ class ConfiguracoesService {
   /// Se a música do jogo deve tocar.
   bool get musicaLigada => _musicaLigada;
 
+  /// Se a gameplay das fases roda em paisagem (`true`) ou em retrato
+  /// (`false`). A geometria das fases é a mesma nos dois modos: o motor usa
+  /// um mundo de altura lógica fixa, então o que muda é só quanto do mapa
+  /// cabe na tela — em paisagem enxerga-se bem mais à frente.
+  bool get orientacaoPaisagem => _orientacaoPaisagem;
+
   Future<void> setDevMode(bool valor) async {
     _devMode = valor;
     await _salvar(_chaveDev, valor);
@@ -53,6 +66,11 @@ class ConfiguracoesService {
   Future<void> setMusica(bool valor) async {
     _musicaLigada = valor;
     await _salvar(_chaveMusica, valor);
+  }
+
+  Future<void> setOrientacaoPaisagem(bool valor) async {
+    _orientacaoPaisagem = valor;
+    await _salvar(_chaveOrientacao, valor);
   }
 
   Future<void> _salvar(String chave, bool valor) async {

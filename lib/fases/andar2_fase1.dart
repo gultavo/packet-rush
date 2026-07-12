@@ -18,10 +18,11 @@ final faseAndar2Fase1 = Fase(
     GroundSegment(double.negativeInfinity, double.infinity),
   ],
 
-  // Plataformas flutuantes desta fase.
-  criarPlataformas: () => [
-    Objects(x: 350, y: 500, width: 64 * 4),
-    Objects(x: 550, y: 400, width: 64 * 4),
-    Objects(x: 750, y: 300, width: 64 * 4),
+  // Plataformas flutuantes desta fase, em escada, posicionadas relativas ao
+  // chão (groundY) para funcionar em qualquer tamanho de tela.
+  criarPlataformas: (groundY) => [
+    Objects(x: 350, y: groundY - 100, width: 64 * 4),
+    Objects(x: 550, y: groundY - 190, width: 64 * 4),
+    Objects(x: 750, y: groundY - 280, width: 64 * 4),
   ],
 );

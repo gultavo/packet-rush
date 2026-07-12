@@ -37,8 +37,10 @@ class ProgressoRepository {
   ProgressoRepository([DatabaseHelper? helper])
       : _helper = helper ?? DatabaseHelper.instance;
 
-  /// Marca uma fase como concluída, guardando [acertos]. Se a fase já existia,
-  /// mantém o MAIOR número de acertos (o melhor desempenho do jogador).
+  /// Registra uma tentativa da fase [andar]/[fase], guardando [acertos]. Se a
+  /// fase já tinha um registro, mantém o MAIOR número de acertos (o melhor
+  /// desempenho do jogador) — chamado mesmo quando o jogador não passou, para
+  /// que as estrelas do seletor reflitam o melhor resultado real.
   Future<void> registrarConclusao(int andar, int fase, int acertos) async {
     final db = await _helper.database;
     await db.rawInsert(
@@ -63,12 +65,16 @@ class ProgressoRepository {
     return linhas.map(Progresso.fromMap).toList();
   }
 
-  /// A fase concluída mais avançada (maior andar e, dentro dele, maior fase),
-  /// ou `null` se o jogador ainda não concluiu nenhuma.
-  Future<Progresso?> ultimaConcluida() async {
+  /// A fase efetivamente aprovada (acertos >= [minAcertos]) mais avançada
+  /// (maior andar e, dentro dele, maior fase), ou `null` se nenhuma foi
+  /// aprovada ainda. Tentativas registradas sem atingir [minAcertos] não
+  /// contam aqui — só valem para as estrelas do seletor.
+  Future<Progresso?> ultimaConcluida({required int minAcertos}) async {
     final db = await _helper.database;
     final linhas = await db.query(
       'fases_concluidas',
+      where: 'acertos >= ?',
+      whereArgs: [minAcertos],
       orderBy: 'andar DESC, fase DESC',
       limit: 1,
     );

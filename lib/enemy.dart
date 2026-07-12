@@ -9,6 +9,10 @@ class Enemy {
 
   bool vivo = true; // false quando o inimigo é atingido por um tiro do player
 
+  // Cooldown de tiro próprio de cada inimigo (permite vários atirando de
+  // forma independente, cada um no seu próprio ritmo).
+  bool podeAtirar = true;
+
   Vector velocity = Vector(0, 0);
 
   String currentSprite = 'sprites/enemy_1.png';

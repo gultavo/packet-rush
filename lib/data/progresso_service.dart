@@ -19,11 +19,17 @@ class ProgressoService {
 
   final ProgressoRepository _repo = ProgressoRepository();
 
-  /// Acertos (0–5) por fase concluída, indexado por [_chave]. A presença da
-  /// chave indica que a fase foi concluída.
+  /// Mínimo de acertos (de 5) no quiz para a fase ser considerada aprovada —
+  /// o que destrava a próxima fase. Tentativas abaixo disso ainda guardam as
+  /// estrelas (melhor desempenho), só não avançam nem destravam nada.
+  static const int minAcertosParaPassar = 3;
+
+  /// Acertos (0–5) por fase, indexado por [_chave]. A presença da chave
+  /// indica que a fase já foi tentada ao menos uma vez (não necessariamente
+  /// aprovada — veja [faseConcluida]).
   final Map<String, int> _acertosPorFase = {};
 
-  /// Cache da fase concluída mais avançada (null = nada concluído ainda).
+  /// Cache da fase aprovada mais avançada (null = nenhuma aprovada ainda).
   Progresso? _ultima;
 
   String _chave(int andar, int fase) => '${andar}_$fase';
@@ -36,32 +42,38 @@ class ProgressoService {
     for (final p in concluidas) {
       _acertosPorFase[_chave(p.andar, p.fase)] = p.acertos;
     }
-    _ultima = await _repo.ultimaConcluida();
+    _ultima = await _repo.ultimaConcluida(minAcertos: minAcertosParaPassar);
   }
 
-  /// Registra que o jogador concluiu a fase [andar]/[numero] com [acertos]
-  /// respostas certas, atualizando os caches em memória.
+  /// Registra uma tentativa da fase [andar]/[numero] com [acertos] respostas
+  /// certas, atualizando os caches em memória. Chamado em toda tentativa,
+  /// aprovada ou não, para que as estrelas reflitam o melhor resultado real;
+  /// só avança "onde continuar" quando a tentativa aprova a fase.
   Future<void> registrarConclusao(int andar, int numero, int acertos) async {
     await _repo.registrarConclusao(andar, numero, acertos);
 
     // Mantém o melhor desempenho também em memória.
     final chave = _chave(andar, numero);
     final atual = _acertosPorFase[chave] ?? 0;
-    _acertosPorFase[chave] = acertos > atual ? acertos : atual;
+    final melhor = acertos > atual ? acertos : atual;
+    _acertosPorFase[chave] = melhor;
+
+    if (melhor < minAcertosParaPassar) return;
 
     if (_ultima == null || _vemDepois(andar, numero, _ultima!)) {
       _ultima = Progresso(
         andar: andar,
         fase: numero,
-        acertos: _acertosPorFase[chave]!,
+        acertos: melhor,
         concluidaEm: DateTime.now(),
       );
     }
   }
 
-  /// Se a fase [andar]/[numero] já foi concluída.
+  /// Se a fase [andar]/[numero] foi aprovada (acertos >= [minAcertosParaPassar]),
+  /// o que é o que destrava a próxima fase.
   bool faseConcluida(int andar, int numero) =>
-      _acertosPorFase.containsKey(_chave(andar, numero));
+      estrelas(andar, numero) >= minAcertosParaPassar;
 
   /// Estrelas (0–5) de uma fase: o número de acertos guardado, ou 0 se ainda
   /// não foi concluída.

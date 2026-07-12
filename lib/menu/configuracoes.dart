@@ -4,10 +4,12 @@ import '../data/musica_service.dart';
 
 /// Tela de Configurações, aberta pelo botão OPTIONS do menu inicial.
 ///
-/// Contém dois interruptores:
+/// Contém três interruptores:
 ///  - DEV: quando ligado, libera todas as fases (para desenvolvimento/testes,
 ///    sem precisar concluí-las na ordem);
-///  - MÚSICA: liga/desliga a trilha sonora do jogo.
+///  - MÚSICA: liga/desliga a trilha sonora do jogo;
+///  - PAISAGEM: escolhe se a gameplay das fases roda com o celular deitado ou
+///    em pé. Menus, leitura de conteúdo e quiz seguem sempre em retrato.
 class Configuracoes extends StatefulWidget {
   const Configuracoes({super.key});
 
@@ -57,6 +59,21 @@ class _ConfiguracoesState extends State<Configuracoes> {
                 onChanged: (v) async {
                   await _config.setMusica(v);
                   await MusicaService.instance.aplicarPreferencia();
+                  setState(() {});
+                },
+              ),
+              const SizedBox(height: 16),
+              _switchTile(
+                icone: _config.orientacaoPaisagem
+                    ? Icons.stay_current_landscape_rounded
+                    : Icons.stay_current_portrait_rounded,
+                titulo: 'PAISAGEM',
+                subtitulo: _config.orientacaoPaisagem
+                    ? 'Fases jogadas com o celular deitado (enxerga mais à frente)'
+                    : 'Fases jogadas com o celular em pé (enxerga menos à frente)',
+                valor: _config.orientacaoPaisagem,
+                onChanged: (v) async {
+                  await _config.setOrientacaoPaisagem(v);
                   setState(() {});
                 },
               ),

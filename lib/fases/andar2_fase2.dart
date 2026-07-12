@@ -30,5 +30,5 @@ final faseAndar2Fase2 = Fase(
   ],
 
   // Só cenário + chão: sem plataformas flutuantes nesta fase.
-  criarPlataformas: () => [],
+  criarPlataformas: (groundY) => [],
 );

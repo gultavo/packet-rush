@@ -186,7 +186,7 @@ class _SeletorFasesDoAndarState extends State<SeletorFasesDoAndar> {
         if (!ehTopo) _conector(cor, desbloqueada),
         _botaoFase(fase, cor, desbloqueada, estrelas),
         const SizedBox(height: 8),
-        _estrelas(estrelas, cor, desbloqueada),
+        _estrelas(estrelas),
         if (ehBase) ...[
           const SizedBox(height: 6),
           Text(
@@ -273,7 +273,7 @@ class _SeletorFasesDoAndarState extends State<SeletorFasesDoAndar> {
   }
 
   // Cinco estrelas embaixo do botão, pintadas pelos acertos do quiz.
-  Widget _estrelas(int qtd, Color cor, bool desbloqueada) {
+  Widget _estrelas(int qtd) {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -283,8 +283,7 @@ class _SeletorFasesDoAndarState extends State<SeletorFasesDoAndar> {
             child: Icon(
               i < qtd ? Icons.star_rounded : Icons.star_border_rounded,
               size: 22,
-              color: i < qtd ? const Color(0xFFFFC061) : Colors.white.withValues(alpha: 0.18),
-              shadows: i < qtd ? [Shadow(color: cor, blurRadius: 8)] : null,
+              color: i < qtd ? Colors.amber : Colors.grey,
             ),
           ),
       ],

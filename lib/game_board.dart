@@ -10,6 +10,7 @@ import 'levels.dart';
 import 'fases/fase.dart';
 import 'fases/fase_content.dart';
 import 'data/progresso_service.dart';
+import 'data/configuracoes_service.dart';
 
 class GameBoard extends StatefulWidget {
   final Fase fase;
@@ -22,11 +23,11 @@ class GameBoard extends StatefulWidget {
 
 class _GameBoardState extends State<GameBoard> {
   late final Player player;
-  late final Enemy enemy;
+  final enemies = <Enemy>[];
 
   final fps = const Duration(milliseconds: 50);
   final plataformas = <Objects>[];
-  final tiros = <Objects>[]; 
+  final tiros = <Objects>[];
   final enemyTiros = <Objects>[];
 
   final keys = KeyMap();
@@ -35,7 +36,6 @@ class _GameBoardState extends State<GameBoard> {
   int vidas = _maxVidas;
 
   double enemyVelocidade = 3.0;
-  bool _inimigoPodeAtirar = true;
 
   Fase get fase => widget.fase;
   LevelData get level => fase.level;
@@ -45,18 +45,38 @@ class _GameBoardState extends State<GameBoard> {
   double gravity = 10.0;
   double velocidade = 20.0;
   bool? isOnGround = false;
-  bool? isOnGroundEnemy = false;
+
+  // Tamanho do pulo: o modo DEV mantém o pulo grande (útil para navegar
+  // rápido pelas fases em teste); o modo normal usa um pulo mais contido,
+  // dimensionado para as distâncias das fases.
+  double get _multiplicadorPulo =>
+      ConfiguracoesService.instance.devMode ? 4.0 : 2.6;
 
   Timer? timer;
   Size? screenSize;
-  bool _podeAtirar = true; 
-  bool _pausado = false; 
+  bool _podeAtirar = true;
+  bool _pausado = false;
+
+  // Grace period: inimigos só podem atirar depois que o jogador apertar
+  // algum botão de movimento pela primeira vez (evita tomar dano assim que
+  // a fase carrega, sem ter tido chance de reagir). Não é resetada em
+  // reset()/game over — uma vez provado que o jogador sabe se mover, o
+  // grace period não volta.
+  bool _jogadorJaSeMoveu = false;
   final FocusNode _focusNode = FocusNode();
 
   // Estados de Conteúdo Didático e Quiz
   bool _mostrandoConteudo = false;
   bool _podeContinuarConteudo = false;
   final ScrollController _conteudoScrollController = ScrollController();
+
+  // Tela "Iniciar": mostrada depois do conteúdo (ou logo de cara, se a fase
+  // não tiver conteúdo), já em paisagem. Dá tempo da rotação física do
+  // celular terminar e do tamanho de tela se estabilizar antes de
+  // posicionar plataformas/inimigos/jogador de verdade — sem isso, esses
+  // elementos nasciam com a altura de tela do retrato (ainda não tinha
+  // girado) e ficavam no lugar errado depois que a tela virava paisagem.
+  bool _mostrandoTelaIniciar = false;
 
   // Tela de "Fase concluída" mostrada ao alcançar o portal, antes do quiz.
   bool _mostrandoPortal = false;
@@ -78,43 +98,113 @@ class _GameBoardState extends State<GameBoard> {
   int _acertos = 0;
 
   static const _groundHeight = 42.0;
-  static const _taskbarHeight = 100.0;
 
   bool get _isMobile =>
       defaultTargetPlatform == TargetPlatform.android ||
       defaultTargetPlatform == TargetPlatform.iOS;
 
-  double get _gameHeight =>
-      _isMobile ? screenSize!.height - _taskbarHeight : screenSize!.height;
+  // ── Mundo de altura lógica fixa ───────────────────────────────────────
+  //
+  // O jogo é simulado num mundo de altura FIXA (não na altura da tela) e
+  // depois desenhado com uma escala uniforme que faz esse mundo caber
+  // exatamente na altura da tela.
+  //
+  // Isso existe porque a física é toda em pixels de mundo e não depende da
+  // tela: o pulo sobe sempre ~162px e alcança ~250px na horizontal. Quando
+  // o chão era `alturaDaTela - 42`, o espaço vertical jogável encolhia
+  // junto com a tela — em paisagem sobravam só ~320px acima do chão, menos
+  // que o necessário para o pulo (162px) mais qualquer torre de
+  // plataformas. Uma fase montada para caber numa tela de ~720px de altura
+  // virava literalmente impossível (a torre da Fase 4 chega a 360px acima
+  // do chão, o que ficava *acima* do topo da tela em paisagem).
+  //
+  // Com a altura do mundo fixa, `_groundY` vira constante e a MESMA
+  // geometria de fase vale igual em retrato e em paisagem. O que muda entre
+  // as orientações é só a escala — e, por consequência, quanto do mapa cabe
+  // na largura da tela: em paisagem a escala é menor, então enxerga-se
+  // muito mais do mapa à frente (que é justamente a vantagem de jogar
+  // deitado).
+  //
+  // 720 é a altura em que as fases foram construídas e validadas.
+  static const double _alturaMundo = 720.0;
 
-  double get _groundY => _gameHeight - _groundHeight;
+  /// Fator que leva pixels de mundo para pixels de tela.
+  double get _escala => screenSize!.height / _alturaMundo;
+
+  /// Largura do mapa (em pixels de MUNDO) que cabe na tela com a escala
+  /// atual. É o substituto de `screenSize.width` em toda a lógica de jogo.
+  double get _larguraVisivel => screenSize!.width / _escala;
+
+  double get _groundY => _alturaMundo - _groundHeight;
 
   double get cameraX {
     if (screenSize == null) return 0;
-    double camX = player.x - screenSize!.width / 2 + player.width / 2;
+    final visivel = _larguraVisivel;
+    double camX = player.x - visivel / 2 + player.width / 2;
     if (camX < 0) return 0;
-    double maxCamX = larguraDoMapa - screenSize!.width;
+    double maxCamX = larguraDoMapa - visivel;
+    if (maxCamX < 0) return 0;
     if (camX > maxCamX) return maxCamX;
     return camX;
   }
 
-  double get cameraY => 0; 
-  double get _bgDisplayWidth => _gameHeight * level.aspect;
+  double get cameraY => 0;
+
+  // Zoom do fundo. A arte é desenhada com a altura do mundo, mas se nessa
+  // altura ela ficar estreita demais para a área visível (o caso da
+  // paisagem, que enxerga muito mais largura de mundo), damos zoom nela até
+  // sobrar folga para deslizar. Sem isso o fundo apareceria inteiro de uma
+  // vez e perderia o efeito de revelar aos poucos conforme o jogador anda.
+  // O excesso de altura é cortado pelo OverflowBox no build().
+  static const double _folgaPanoramicaFundo = 1.35;
+
+  double get _alturaZoomFundo {
+    final alturaParaFolga =
+        (_larguraVisivel * _folgaPanoramicaFundo) / level.aspect;
+    return alturaParaFolga > _alturaMundo ? alturaParaFolga : _alturaMundo;
+  }
+
+  double get _bgDisplayWidth => _alturaZoomFundo * level.aspect;
 
   double get _bgOffsetX {
     if (screenSize == null) return 0;
-    final screenW = screenSize!.width;
-    final maxOffset = _bgDisplayWidth - screenW;
+    final visivel = _larguraVisivel;
+    final maxOffset = _bgDisplayWidth - visivel;
     if (maxOffset <= 0) return 0;
-    final cameraMax = larguraDoMapa - screenW;
+    final cameraMax = larguraDoMapa - visivel;
     if (cameraMax <= 0) return 0;
-    final t = (cameraX / cameraMax).clamp(0.0, 1.0); 
+    final t = (cameraX / cameraMax).clamp(0.0, 1.0);
     return t * maxOffset;
   }
 
   void spawnPLataformas() {
-    plataformas.addAll(fase.criarPlataformas());
+    plataformas.addAll(fase.criarPlataformas(_groundY));
     update();
+  }
+
+  /// Posiciona jogador e inimigos já em pé sobre o chão assim que a tela
+  /// tem um tamanho conhecido, em vez de deixá-los cair de uma posição fixa
+  /// no topo da tela.
+  void _posicionarNoChao() {
+    if (!mounted) return;
+    setState(() {
+      player.y = _spawnYPlayer;
+      enemies
+        ..clear()
+        ..addAll(_construirInimigos());
+    });
+  }
+
+  /// Confirmado na tela "Iniciar": nesse ponto a orientação/tamanho de
+  /// tela já é o definitivo da gameplay (a rotação física já terminou),
+  /// então é seguro posicionar jogador, inimigos e plataformas de verdade
+  /// e ligar a física. Não mexe no grace period — continua dependendo só
+  /// do primeiro input de movimento do jogador.
+  void _iniciarGameplay() {
+    setState(() => _mostrandoTelaIniciar = false);
+    _posicionarNoChao();
+    spawnPLataformas();
+    _focusNode.requestFocus();
   }
 
   void update() {
@@ -147,36 +237,57 @@ class _GameBoardState extends State<GameBoard> {
         _encostarPortal();
       }
 
-      if (enemy.vivo) {
-        final dx = player.x - enemy.x;
-        enemy.position = dx < 0 ? 0 : 1;
-        const distanciaParada = 250.0;
-        if (dx.abs() > distanciaParada) {
-          enemy.velocity.x = dx < 0 ? -enemyVelocidade : enemyVelocidade;
+      for (final inimigo in enemies) {
+        if (inimigo.vivo) {
+          final dx = player.x - inimigo.x;
+          inimigo.position = dx < 0 ? 0 : 1;
+          if (!_jogadorJaSeMoveu) {
+            // Grace period: inimigo fica parado (não persegue nem atira)
+            // até o jogador apertar um botão de movimento pela primeira
+            // vez. Sem isso, o inimigo já vinha se aproximando durante a
+            // espera e atirava assim que o grace period acabava.
+            inimigo.velocity.x = 0;
+          } else {
+            const distanciaParada = 250.0;
+            if (dx.abs() > distanciaParada) {
+              final direcao = dx < 0 ? -1.0 : 1.0;
+              final podeAndar = _temChaoAdiante(inimigo, direcao) &&
+                  !_temInimigoAdiante(inimigo, direcao);
+              inimigo.velocity.x = podeAndar ? direcao * enemyVelocidade : 0;
+            } else {
+              inimigo.velocity.x = 0;
+            }
+            // "Se eu te vejo, você me vê": o inimigo só atira quando está
+            // dentro da faixa de mundo que cabe na tela. Em paisagem essa
+            // faixa é maior, mas o jogador também enxerga o inimigo antes.
+            final alcance = screenSize == null ? 800.0 : _larguraVisivel;
+            if (dx.abs() < alcance) {
+              _dispararInimigo(inimigo);
+            }
+          }
         } else {
-          enemy.velocity.x = 0;
+          inimigo.velocity.x = 0;
         }
-        final alcance = screenSize?.width ?? 800;
-        if (dx.abs() < alcance) {
-          _dispararInimigo();
+
+        inimigo.y += inimigo.velocity.y;
+        inimigo.x += inimigo.velocity.x;
+
+        if (inimigo.x < 0) inimigo.x = 0;
+        if (inimigo.x > larguraDoMapa - inimigo.width) {
+          inimigo.x = larguraDoMapa - inimigo.width;
         }
-      } else {
-        enemy.velocity.x = 0;
       }
 
-      enemy.y += enemy.velocity.y;
-      enemy.x += enemy.velocity.x;
-
-      if (enemy.x < 0) enemy.x = 0;
-      if (enemy.x > larguraDoMapa - enemy.width) enemy.x = larguraDoMapa - enemy.width;
-
-      if (player.top > _gameHeight + 600) {
+      // Chão ausente sob o jogador (buraco/gap): cai e morre na hora.
+      if (player.top > _groundY + 260) {
+        _perderVida();
         reset();
       } else {
         player.velocity.y += gravity;
-        enemy.velocity.y += gravity; 
+        for (final inimigo in enemies) {
+          inimigo.velocity.y += gravity;
+        }
         isOnGround = false;
-        isOnGroundEnemy = false;
       }
 
       if (keys.left) {
@@ -210,23 +321,24 @@ class _GameBoardState extends State<GameBoard> {
         }
       }
 
-      for (var plataforma in plataformas) {
-        if (enemy.bottom <= plataforma.top &&
-            enemy.bottom + enemy.velocity.y >= plataforma.top &&
-            enemy.right > plataforma.left &&
-            enemy.left < plataforma.right) {
-          enemy.velocity.y = 0;
-          enemy.y = plataforma.top - enemy.height;
-          isOnGroundEnemy = true;
+      for (final inimigo in enemies) {
+        for (var plataforma in plataformas) {
+          if (inimigo.bottom <= plataforma.top &&
+              inimigo.bottom + inimigo.velocity.y >= plataforma.top &&
+              inimigo.right > plataforma.left &&
+              inimigo.left < plataforma.right) {
+            inimigo.velocity.y = 0;
+            inimigo.y = plataforma.top - inimigo.height;
+          }
         }
-      }
 
-      for (var seg in groundSegments) {
-        if (enemy.right > seg.startX && enemy.left < seg.endX) {
-          if (enemy.bottom <= _groundY && enemy.bottom + enemy.velocity.y >= _groundY) {
-            enemy.velocity.y = 0;
-            enemy.y = _groundY - enemy.height;
-            isOnGroundEnemy = true;
+        for (var seg in groundSegments) {
+          if (inimigo.right > seg.startX && inimigo.left < seg.endX) {
+            if (inimigo.bottom <= _groundY &&
+                inimigo.bottom + inimigo.velocity.y >= _groundY) {
+              inimigo.velocity.y = 0;
+              inimigo.y = _groundY - inimigo.height;
+            }
           }
         }
       }
@@ -234,13 +346,13 @@ class _GameBoardState extends State<GameBoard> {
       for (var tiro in tiros) {
         tiro.x += tiro.invertido ? -40 : 40;
       }
-      tiros.removeWhere((t) => t.left > player.x + screenSize!.width);
+      tiros.removeWhere((t) => t.left > player.x + _larguraVisivel);
 
       for (var tiro in enemyTiros) {
         tiro.x += tiro.invertido ? -18 : 18;
       }
       final camEsq = cameraX - 100;
-      final camDir = cameraX + (screenSize?.width ?? 0) + 100;
+      final camDir = cameraX + (screenSize == null ? 0.0 : _larguraVisivel) + 100;
       enemyTiros.removeWhere((t) => t.right < camEsq || t.left > camDir);
 
       final acertosNoPlayer = enemyTiros
@@ -253,9 +365,12 @@ class _GameBoardState extends State<GameBoard> {
         }
       }
 
-      if (enemy.vivo && tiros.any((t) => _colide(t, enemy.left, enemy.top, enemy.right, enemy.bottom))) {
-        tiros.removeWhere((t) => _colide(t, enemy.left, enemy.top, enemy.right, enemy.bottom));
-        enemy.vivo = false;
+      for (final inimigo in enemies) {
+        if (inimigo.vivo &&
+            tiros.any((t) => _colide(t, inimigo.left, inimigo.top, inimigo.right, inimigo.bottom))) {
+          tiros.removeWhere((t) => _colide(t, inimigo.left, inimigo.top, inimigo.right, inimigo.bottom));
+          inimigo.vivo = false;
+        }
       }
 
       setState(() {});
@@ -284,29 +399,98 @@ class _GameBoardState extends State<GameBoard> {
     });
   }
 
+  // Insets aplicados só na colisão de dano (tiro x player/inimigo), não na
+  // física de chão/plataforma nem no tamanho visual dos sprites. Os sprites
+  // têm bastante espaço vazio ao redor do desenho, então usar a caixa
+  // cheia fazia o tiro "acertar" com os sprites ainda visivelmente longe.
+  static const double _insetAlvoX = 0.20;
+  static const double _insetAlvoY = 0.15;
+  static const double _insetTiroX = 0.225;
+  static const double _insetTiroY = 0.275;
+
   bool _colide(Objects o, double left, double top, double right, double bottom) {
-    return o.right > left && o.left < right && o.bottom > top && o.top < bottom;
+    final tDx = o.width * _insetTiroX;
+    final tDy = o.height * _insetTiroY;
+    final tLeft = o.left + tDx;
+    final tTop = o.top + tDy;
+    final tRight = o.right - tDx;
+    final tBottom = o.bottom - tDy;
+
+    final aDx = (right - left) * _insetAlvoX;
+    final aDy = (bottom - top) * _insetAlvoY;
+    final aLeft = left + aDx;
+    final aTop = top + aDy;
+    final aRight = right - aDx;
+    final aBottom = bottom - aDy;
+
+    return tRight > aLeft && tLeft < aRight && tBottom > aTop && tTop < aBottom;
   }
 
-  void _dispararInimigo() {
-    if (!_inimigoPodeAtirar || !enemy.vivo) return;
+  /// IA mínima de borda: antes de andar na [direcao] (-1 esquerda, 1
+  /// direita), checa se ainda há chão ou plataforma logo à frente do
+  /// inimigo. Evita que ele ande para dentro de um buraco enquanto
+  /// persegue o jogador — ele simplesmente para na borda.
+  bool _temChaoAdiante(Enemy inimigo, double direcao) {
+    const double margemAFrente = 12.0;
+    const double epsilonAltura = 4.0;
+    final double xFrente =
+        direcao < 0 ? inimigo.left - margemAFrente : inimigo.right + margemAFrente;
+    final double bottomAtual = inimigo.bottom;
 
-    final paraEsquerda = player.x < enemy.x;
-    final posx = paraEsquerda ? enemy.left - 64 : enemy.right;
+    for (final seg in groundSegments) {
+      if (xFrente > seg.startX &&
+          xFrente < seg.endX &&
+          (bottomAtual - _groundY).abs() <= epsilonAltura) {
+        return true;
+      }
+    }
+    for (final plataforma in plataformas) {
+      if (xFrente > plataforma.left &&
+          xFrente < plataforma.right &&
+          (bottomAtual - plataforma.top).abs() <= epsilonAltura) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /// Evita que um inimigo ande por cima de outro: sem isso, dois inimigos
+  /// perseguindo o jogador na mesma direção (ex.: ambos parados pela mesma
+  /// borda de chão) convergem para o mesmo X e ficam empilhados no mesmo
+  /// lugar — visualmente um inimigo só, mas com o dobro de vida e tiros.
+  bool _temInimigoAdiante(Enemy inimigo, double direcao) {
+    const double margemAFrente = 8.0;
+    final double xFrente =
+        direcao < 0 ? inimigo.left - margemAFrente : inimigo.right + margemAFrente;
+
+    for (final outro in enemies) {
+      if (identical(outro, inimigo) || !outro.vivo) continue;
+      if (xFrente > outro.left - margemAFrente && xFrente < outro.right + margemAFrente) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  void _dispararInimigo(Enemy inimigo) {
+    if (!_jogadorJaSeMoveu || !inimigo.podeAtirar || !inimigo.vivo) return;
+
+    final paraEsquerda = player.x < inimigo.x;
+    final posx = paraEsquerda ? inimigo.left - 64 : inimigo.right;
 
     enemyTiros.add(
       Objects(
         width: 64,
         height: 24,
         x: posx,
-        y: enemy.top + enemy.height / 2 - 12,
+        y: inimigo.top + inimigo.height / 2 - 12,
         invertido: paraEsquerda,
       ),
     );
 
-    _inimigoPodeAtirar = false;
+    inimigo.podeAtirar = false;
     Future.delayed(const Duration(milliseconds: 1200), () {
-      _inimigoPodeAtirar = true;
+      inimigo.podeAtirar = true;
     });
   }
 
@@ -330,11 +514,9 @@ class _GameBoardState extends State<GameBoard> {
     tiros.clear();
     enemyTiros.clear();
 
-    enemy.vivo = true;
-    enemy.x = fase.enemyStartX;
-    enemy.y = fase.enemyStartY;
-    enemy.velocity.x = 0;
-    enemy.velocity.y = 0;
+    enemies
+      ..clear()
+      ..addAll(_construirInimigos());
 
     reset();
     setState(() => _mostrandoGameOver = false);
@@ -351,11 +533,30 @@ class _GameBoardState extends State<GameBoard> {
     player.velocity.x = 0;
     player.velocity.y = 0;
     player.x = fase.playerStartX;
-    player.y = fase.playerStartY;
+    player.y = _spawnYPlayer;
     _quizJaAberto = false;
     _portalAtivado = false;
     _mostrandoPortal = false;
+    // O jogador volta pro início ao morrer (queda no buraco ou game over):
+    // sem resetar isso, os inimigos já liberados continuariam podendo
+    // atirar assim que ele reaparecesse, sem nenhuma chance de reagir —
+    // exatamente o que o grace period deveria evitar.
+    _jogadorJaSeMoveu = false;
   }
+
+  /// Posição Y de nascimento/respawn do jogador: por padrão, já em pé sobre
+  /// o chão (evita o jogador "flutuar" no ar e cair de muito alto ao entrar
+  /// na fase). Só usa um valor customizado se a fase pedir explicitamente.
+  double get _spawnYPlayer => fase.playerStartY ?? (_groundY - player.height);
+
+  /// Recria a lista de inimigos a partir dos spawns da fase, já com o Y
+  /// resolvido: sobre o chão por padrão, ou no Y customizado do spawn (ex.:
+  /// em cima de uma plataforma). Só pode ser chamado quando o chão (Y da
+  /// tela) já é conhecido, isto é, depois do primeiro build.
+  List<Enemy> _construirInimigos() => [
+        for (final spawn in fase.criarInimigos(_groundY))
+          Enemy(x: spawn.x, y: spawn.y ?? (_groundY - 64)),
+      ];
 
   /// Chamado quando o jogador encosta no portal. Congela o jogador e mostra a
   /// tela de "Fase concluída" com o botão SEGUIR, que então abre o quiz.
@@ -396,6 +597,7 @@ class _GameBoardState extends State<GameBoard> {
       _respostaIncorreta = false;
       _acertos = 0;
     });
+    _definirOrientacao(retrato: true);
   }
 
   void _responderQuiz(int index) {
@@ -430,20 +632,17 @@ class _GameBoardState extends State<GameBoard> {
     });
   }
 
-  /// Mínimo de acertos (de 5) para concluir a fase e destravar a próxima.
-  static const int _minAcertosParaPassar = 3;
-
   void _avancarFase() {
-    final aprovado = _acertos >= _minAcertosParaPassar;
+    final aprovado = _acertos >= ProgressoService.minAcertosParaPassar;
 
-    // Só conclui/destrava se passou. Guarda o melhor resultado (estrelas).
-    if (aprovado) {
-      ProgressoService.instance.registrarConclusao(
-        fase.andar,
-        fase.numero,
-        _acertos,
-      );
-    }
+    // Sempre guarda o melhor resultado (estrelas), mesmo se não aprovado; só
+    // desbloqueia a próxima fase quando aprovado (o próprio ProgressoService
+    // decide isso a partir do nº de acertos).
+    ProgressoService.instance.registrarConclusao(
+      fase.andar,
+      fase.numero,
+      _acertos,
+    );
 
     _mostrarResultado(aprovado);
   }
@@ -481,7 +680,7 @@ class _GameBoardState extends State<GameBoard> {
             Text(
               aprovado
                   ? 'Você passou pelo portal!'
-                  : 'Você precisa de pelo menos $_minAcertosParaPassar acertos para passar. Tente novamente!',
+                  : 'Você precisa de pelo menos ${ProgressoService.minAcertosParaPassar} acertos para passar. Tente novamente!',
               textAlign: TextAlign.center,
               style: const TextStyle(color: _menuCreme, fontSize: 16),
             ),
@@ -492,9 +691,8 @@ class _GameBoardState extends State<GameBoard> {
                 for (int i = 0; i < 5; i++)
                   Icon(
                     i < _acertos ? Icons.star_rounded : Icons.star_border_rounded,
-                    color: _menuLaranjaClara,
+                    color: i < _acertos ? Colors.amber : Colors.grey,
                     size: 34,
-                    shadows: const [Shadow(color: _menuLaranja, blurRadius: 10)],
                   ),
               ],
             ),
@@ -558,13 +756,21 @@ class _GameBoardState extends State<GameBoard> {
   @override
   void initState() {
     super.initState();
-    player = Player(x: fase.playerStartX, y: fase.playerStartY);
-    enemy = Enemy(x: fase.enemyStartX, y: fase.enemyStartY);
+    // Posição Y provisória (0): o posicionamento de verdade só acontece
+    // quando o jogador confirma a tela "Iniciar" (_iniciarGameplay), ponto
+    // em que a orientação/tamanho de tela já está definitivo.
+    player = Player(x: fase.playerStartX, y: 0);
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
-    
+
     if (fase.conteudo != null && fase.conteudo!.isNotEmpty) {
       _mostrandoConteudo = true;
     }
+    // Sem conteúdo: pula direto pra tela "Iniciar", já na orientação de
+    // gameplay escolhida nas Configurações.
+    _mostrandoTelaIniciar = !_mostrandoConteudo;
+    _definirOrientacao(
+      retrato: _mostrandoConteudo || !_gameplayEmPaisagem,
+    );
 
     _conteudoScrollController.addListener(() {
       if (_conteudoScrollController.position.pixels >=
@@ -582,8 +788,6 @@ class _GameBoardState extends State<GameBoard> {
         }
       }
     });
-
-    Timer(const Duration(seconds: 1), spawnPLataformas);
   }
 
   @override
@@ -592,7 +796,29 @@ class _GameBoardState extends State<GameBoard> {
     _conteudoScrollController.dispose();
     _focusNode.dispose();
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+    // Libera a rotação de novo ao sair da fase — mesmo comportamento livre
+    // que os menus já têm hoje.
+    SystemChrome.setPreferredOrientations(DeviceOrientation.values);
     super.dispose();
+  }
+
+  /// Trava a orientação: retrato para conteúdo/quiz (leitura), paisagem
+  /// para a gameplay em si (mais área horizontal — o eixo em que a câmera
+  /// rola e onde aparecem inimigos, buracos e plataformas à frente).
+  ///
+  /// Se a gameplay roda deitada ou em pé é escolha do jogador, no
+  /// interruptor PAISAGEM das Configurações. A geometria das fases é a
+  /// mesma nos dois modos (ver a nota em [_alturaMundo]): o que muda é só
+  /// quanto do mapa cabe na tela.
+  bool get _gameplayEmPaisagem =>
+      ConfiguracoesService.instance.orientacaoPaisagem;
+
+  void _definirOrientacao({required bool retrato}) {
+    SystemChrome.setPreferredOrientations(
+      retrato
+          ? [DeviceOrientation.portraitUp]
+          : [DeviceOrientation.landscapeLeft, DeviceOrientation.landscapeRight],
+    );
   }
 
   @override
@@ -606,31 +832,54 @@ class _GameBoardState extends State<GameBoard> {
         onKeyEvent: keyListener,
         child: Stack(
           children: [
-            Column(
-              children: [
-                Expanded(
-                  child: Container(
-                    color: Colors.black,
-                    child: Stack(
+            // O mundo do jogo é montado em pixels de MUNDO (largura visível
+            // × _alturaMundo) e só então escalado para caber exatamente na
+            // tela. Assim a mesma geometria de fase serve para retrato e
+            // paisagem — ver a nota em _alturaMundo.
+            Positioned.fill(
+              child: ClipRect(
+                child: Container(
+                  color: Colors.black,
+                  child: OverflowBox(
+                    alignment: Alignment.topLeft,
+                    minWidth: _larguraVisivel,
+                    maxWidth: _larguraVisivel,
+                    minHeight: _alturaMundo,
+                    maxHeight: _alturaMundo,
+                    child: Transform.scale(
+                      scale: _escala,
+                      alignment: Alignment.topLeft,
+                      child: SizedBox(
+                        width: _larguraVisivel,
+                        height: _alturaMundo,
+                        child: Stack(
                       children: [
                         AnimatedPositioned(
                           duration: fps,
-                          top: 0, 
+                          top: 0,
                           left: 0 - _bgOffsetX,
                           width: _bgDisplayWidth,
-                          height: _gameHeight, 
-                          child: Container(
-                            decoration: BoxDecoration(
-                              image: DecorationImage(
-                                image: AssetImage(level.backgroundImage),
-                                alignment: Alignment.topLeft,
-                                fit: BoxFit.fitHeight,
+                          height: _alturaMundo,
+                          child: OverflowBox(
+                            alignment: Alignment.topLeft,
+                            minWidth: _bgDisplayWidth,
+                            maxWidth: _bgDisplayWidth,
+                            minHeight: _alturaZoomFundo,
+                            maxHeight: _alturaZoomFundo,
+                            child: Container(
+                              decoration: BoxDecoration(
+                                image: DecorationImage(
+                                  image: AssetImage(level.backgroundImage),
+                                  alignment: Alignment.topLeft,
+                                  fit: BoxFit.fitHeight,
+                                ),
                               ),
                             ),
                           ),
                         ),
 
-                        for (var seg in groundSegments) _buildGroundSegment(seg),
+                        for (var seg in groundSegments)
+                          if (_segmentoVisivel(seg)) _buildGroundSegment(seg),
 
                         // Portal
                         AnimatedPositioned(
@@ -706,25 +955,27 @@ class _GameBoardState extends State<GameBoard> {
                             ),
                           ),
 
-                        if (enemy.vivo)
-                          AnimatedPositioned(
-                            top: enemy.y - cameraY,
-                            left: enemy.x - cameraX,
-                            width: enemy.width,
-                            height: enemy.height,
-                            duration: fps,
-                            child: Transform.flip(
-                              flipX: enemy.position == 1,
-                              child: Container(
-                                decoration: BoxDecoration(
-                                  image: DecorationImage(
-                                    image: AssetImage(enemy.currentSprite),
-                                    fit: BoxFit.contain,
+                        for (var inimigo in enemies)
+                          if (inimigo.vivo)
+                            AnimatedPositioned(
+                              key: ValueKey(inimigo),
+                              top: inimigo.y - cameraY,
+                              left: inimigo.x - cameraX,
+                              width: inimigo.width,
+                              height: inimigo.height,
+                              duration: fps,
+                              child: Transform.flip(
+                                flipX: inimigo.position == 1,
+                                child: Container(
+                                  decoration: BoxDecoration(
+                                    image: DecorationImage(
+                                      image: AssetImage(inimigo.currentSprite),
+                                      fit: BoxFit.contain,
+                                    ),
                                   ),
                                 ),
                               ),
                             ),
-                          ),
 
                         AnimatedPositioned(
                           top: player.y - cameraY,
@@ -745,18 +996,30 @@ class _GameBoardState extends State<GameBoard> {
                           ),
                         ),
 
-                        Positioned(top: 16, left: 16, child: _buildBarraDeVida()),
-                        Positioned(top: 16, right: 16, child: _buildBotaoMenu()),
                       ],
+                        ),
+                      ),
                     ),
                   ),
                 ),
-                if (_isMobile) _buildTaskbar(),
-              ],
+              ),
             ),
-            
+
+            // HUD e controles ficam FORA da escala do mundo: são medidos em
+            // pixels de tela, então não encolhem junto com o mundo quando a
+            // escala cai (paisagem). Só o jogo em si é escalado.
+            Positioned(top: 16, left: 16, child: _buildBarraDeVida()),
+            Positioned(top: 16, right: 16, child: _buildBotaoMenu()),
+
+            // Controles flutuantes (estilo Minecraft mobile): sobrepostos
+            // ao jogo, um cluster em cada canto inferior, sem reservar
+            // espaço — o chão encosta na borda real da tela.
+            if (_isMobile) _buildControlesEsquerda(),
+            if (_isMobile) _buildControlesDireita(),
+
             // Overlays Cobrindo o game inteiro
             if (_mostrandoConteudo) Positioned.fill(child: _buildOverlayConteudo()),
+            if (_mostrandoTelaIniciar) Positioned.fill(child: _buildOverlayIniciar()),
             if (_mostrandoPortal) Positioned.fill(child: _buildOverlayPortal()),
             if (_mostrandoQuiz) Positioned.fill(child: _buildOverlayQuiz()),
             if (_mostrandoGameOver) Positioned.fill(child: _buildOverlayGameOver()),
@@ -774,9 +1037,8 @@ class _GameBoardState extends State<GameBoard> {
             padding: const EdgeInsets.only(right: 4),
             child: Icon(
               i < vidas ? Icons.favorite : Icons.favorite_border,
-              color: Colors.red,
+              color: i < vidas ? Colors.red : Colors.grey,
               size: 32,
-              shadows: const [Shadow(color: Colors.black, blurRadius: 4)],
             ),
           ),
       ],
@@ -970,6 +1232,62 @@ class _GameBoardState extends State<GameBoard> {
     );
   }
 
+  // --- Overlay "Iniciar" (buffer entre a troca de orientação e a
+  // gameplay de verdade, dá tempo do celular girar sem susto) ---
+  Widget _buildOverlayIniciar() {
+    return Container(
+      color: Colors.black.withValues(alpha: 0.85),
+      alignment: Alignment.center,
+      padding: const EdgeInsets.all(24),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 520),
+        child: _painelTech(
+          onTap: () {},
+          padding: const EdgeInsets.all(28),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                _gameplayEmPaisagem
+                    ? Icons.screen_rotation_rounded
+                    : Icons.videogame_asset_rounded,
+                color: _menuLaranjaClara,
+                size: 44,
+                shadows: const [Shadow(color: _menuLaranja, blurRadius: 16)],
+              ),
+              const SizedBox(height: 14),
+              Text(
+                fase.titulo?.toUpperCase() ?? 'PREPARE-SE',
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  color: _menuLaranja,
+                  fontWeight: FontWeight.w900,
+                  fontSize: 26,
+                  letterSpacing: 4,
+                ),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                _gameplayEmPaisagem
+                    ? 'Gire o celular na horizontal. Quando estiver pronto, aperte Iniciar.'
+                    : 'Quando estiver pronto, aperte Iniciar.',
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                    color: _menuCreme, fontSize: 16, height: 1.4),
+              ),
+              const SizedBox(height: 26),
+              _itemMenu(
+                icon: Icons.play_arrow_rounded,
+                texto: 'INICIAR',
+                onTap: _iniciarGameplay,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   // --- Overlay de "Game Over" (ao perder todas as vidas) ---
   Widget _buildOverlayGameOver() {
     return Container(
@@ -1089,8 +1407,11 @@ class _GameBoardState extends State<GameBoard> {
                   texto: 'COMEÇAR FASE',
                   onTap: () {
                     if (_podeContinuarConteudo) {
-                      setState(() => _mostrandoConteudo = false);
-                      _focusNode.requestFocus();
+                      setState(() {
+                        _mostrandoConteudo = false;
+                        _mostrandoTelaIniciar = true;
+                      });
+                      _definirOrientacao(retrato: !_gameplayEmPaisagem);
                     }
                   },
                 ),
@@ -1266,48 +1587,58 @@ class _GameBoardState extends State<GameBoard> {
     );
   }
 
-  Widget _buildTaskbar() {
-    return Container(
-      height: _taskbarHeight,
-      color: Colors.black87,
-      padding: const EdgeInsets.symmetric(horizontal: 16),
+  // Cluster inferior esquerdo: mover esquerda/direita.
+  Widget _buildControlesEsquerda() {
+    return Positioned(
+      left: 16,
+      bottom: 16,
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Row(
-            children: [
-              _controlButton(
-                icon: Icons.arrow_back,
-                onStart: () => keys.left = true,
-                onEnd: () => keys.left = false,
-              ),
-              _controlButton(
-                icon: Icons.arrow_forward,
-                onStart: () => keys.right = true,
-                onEnd: () => keys.right = false,
-              ),
-            ],
+          _controlButton(
+            icon: Icons.arrow_back,
+            onStart: () {
+              keys.left = true;
+              _jogadorJaSeMoveu = true;
+            },
+            onEnd: () => keys.left = false,
           ),
-          Row(
-            children: [
-              _controlButton(
-                icon: Icons.arrow_upward,
-                onStart: () {
-                  if (isOnGround == true &&
-                      !_mostrandoConteudo &&
-                      !_mostrandoQuiz &&
-                      !_mostrandoPortal) {
-                    player.velocity.y = -velocidade * 4;
-                  }
-                },
-                onEnd: () {},
-              ),
-              _controlButton(
-                icon: Icons.circle,
-                onStart: _executarDisparo, 
-                onEnd: () {},
-              ),
-            ],
+          _controlButton(
+            icon: Icons.arrow_forward,
+            onStart: () {
+              keys.right = true;
+              _jogadorJaSeMoveu = true;
+            },
+            onEnd: () => keys.right = false,
+          ),
+        ],
+      ),
+    );
+  }
+
+  // Cluster inferior direito: pular e atirar.
+  Widget _buildControlesDireita() {
+    return Positioned(
+      right: 16,
+      bottom: 16,
+      child: Row(
+        children: [
+          _controlButton(
+            icon: Icons.arrow_upward,
+            onStart: () {
+              if (isOnGround == true &&
+                  !_mostrandoConteudo &&
+                  !_mostrandoQuiz &&
+                  !_mostrandoPortal) {
+                _jogadorJaSeMoveu = true;
+                player.velocity.y = -velocidade * _multiplicadorPulo;
+              }
+            },
+            onEnd: () {},
+          ),
+          _controlButton(
+            icon: Icons.circle,
+            onStart: _executarDisparo,
+            onEnd: () {},
           ),
         ],
       ),
@@ -1337,18 +1668,33 @@ class _GameBoardState extends State<GameBoard> {
     );
   }
 
-  Widget _buildGroundSegment(GroundSegment seg) {
-    final screenW = screenSize!.width;
-    final segLeft = seg.startX - cameraX;
-    final segRight = seg.endX - cameraX;
+  bool _segmentoVisivel(GroundSegment seg) {
+    final visivel = _larguraVisivel;
+    final startX = seg.startX.isFinite ? seg.startX : -999.0;
+    final endX = seg.endX.isFinite ? seg.endX : 99000.0;
+    final left = startX - cameraX;
+    final width = endX - startX;
+    return !(left + width <= 0 || left >= visivel);
+  }
 
-    if (segRight <= 0 || segLeft >= screenW) return const SizedBox.shrink();
+  Widget _buildGroundSegment(GroundSegment seg) {
+    // Bordas infinitas (lado da fase sem buraco) são trocadas por um ponto
+    // bem além de qualquer mapa real, fixo no mundo (não depende da
+    // câmera), para a textura não "deslizar" ao mover a câmera e para o
+    // chão desenhado sempre cobrir toda a área visível daquele lado.
+    // Tratado por borda (não só quando os dois lados são infinitos), pois
+    // um buraco pode deixar só um dos lados finito, ex.: (-inf, 1450).
+    final startX = seg.startX.isFinite ? seg.startX : -999.0;
+    final endX = seg.endX.isFinite ? seg.endX : 99000.0;
+    final left = startX - cameraX;
+    final width = endX - startX;
 
     return AnimatedPositioned(
+      key: ValueKey(seg),
       duration: fps,
       top: _groundY - cameraY,
-      left: -999 - cameraX,
-      width: 99999,
+      left: left,
+      width: width,
       height: _groundHeight,
       child: Container(
         decoration: const BoxDecoration(
@@ -1367,15 +1713,18 @@ class _GameBoardState extends State<GameBoard> {
 
     if (event.logicalKey == LogicalKeyboardKey.arrowLeft) {
       keys.left = pressed;
+      if (pressed) _jogadorJaSeMoveu = true;
     } else if (event.logicalKey == LogicalKeyboardKey.arrowRight) {
       keys.right = pressed;
+      if (pressed) _jogadorJaSeMoveu = true;
     } else if (event.logicalKey == LogicalKeyboardKey.arrowUp) {
       if (pressed &&
           isOnGround == true &&
           !_mostrandoConteudo &&
           !_mostrandoQuiz &&
           !_mostrandoPortal) {
-        player.velocity.y = -velocidade * 4;
+        _jogadorJaSeMoveu = true;
+        player.velocity.y = -velocidade * _multiplicadorPulo;
       }
     } else if (event.logicalKey == LogicalKeyboardKey.space) {
       if (pressed) {
