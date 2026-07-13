@@ -1,15 +1,14 @@
 class Player {
-  double x;
-  double y;
+  double x; // Posição atual do jogador em X.
+  double y; // Posição atual do jogador em Y.
 
-  double width;
-  double height;
+  double width; //tamanho horizontal do jogador define a hitbox
+  double height; //tamanho vertical do jogador
+  double position; //estado direcional do jogador
 
-  double position;
+  Vector velocity = Vector(0, 0); //velocidade do jogador
 
-  Vector velocity = Vector(0, 0);
-
-  String currentSprite = 'sprites/boneco_1.png';
+  String currentSprite = 'sprites/boneco_1.png'; //sprite atual do jogador
 
   Player({
     this.x = 0,

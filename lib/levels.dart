@@ -1,33 +1,33 @@
 import 'dart:ui';
 
 class LevelData{
-  Size size;  // tamanho do nível **Ajeitar**
-  Offset offset; // limite da câmera **Ajeitar**
+  Size size;  // tamanho do nível 
+  Offset offset; // limite da câmera 
   final String backgroundImage; // background do nível
-  double larguraDoMapa;
+  double larguraDoMapa; // Tamanho total em pixels de largura jogável da fase.
 
   // Tamanho nativo (em pixels) da arte de fundo. Serve para o GameBoard saber
   // a proporção da imagem e travar o cenário exatamente na borda da arte,
   // evitando faixa branca no fim da fase.
-  final double imgWidth;
-  final double imgHeight;
+  final double imgWidth; // Guarda a largura bruta e original da imagem de fundo.
+  final double imgHeight; // Guarda a altura bruta e original da imagem de fundo.
 
   LevelData({
-    required this.size,
-    required this.offset,
-    required this.backgroundImage,
-    required this.larguraDoMapa,
-    this.imgWidth = 1983,
-    this.imgHeight = 793,
+    required this.size, // Exige a dimensão total na criação da fase.
+    required this.offset, // Exige o limite de câmera na criação da fase.
+    required this.backgroundImage, // Exige o fundo cenário na criação da fase.
+    required this.larguraDoMapa, // Exige a configuração da largura física do mapa.
+    this.imgWidth = 1983, // Largura de fallback da imagem de fundo.
+    this.imgHeight = 793, // Altura de fallback da imagem de fundo.
     });
 
   /// Proporção largura/altura da arte de fundo.
-  double get aspect => imgHeight == 0 ? 2.5 : imgWidth / imgHeight;
+  double get aspect => imgHeight == 0 ? 2.5 : imgWidth / imgHeight; // Calcula a proporção (aspect ratio) da imagem de fundo protegendo contra divisão por zero.
 }
 
-final levelOne = LevelData(
-  size: const Size(1600, 600),
-  offset: const Offset(800, 0),
-  backgroundImage: 'sprites/Back_2-1.png',
-  larguraDoMapa: 4340
+final levelOne = LevelData( // Declara e configura a instância do primeiro nível do jogo (fase 1).
+  size: const Size(1600, 600), // Configura as dimensões lógicas do nível 1.
+  offset: const Offset(800, 0), // Configura o offset de limite da câmera para o nível 1.
+  backgroundImage: 'sprites/Back_2-1.png', // Aponta a arte de cenário que este nível usará.
+  larguraDoMapa: 4340 // Extensão jogável desse mapa específico.
 );

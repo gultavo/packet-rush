@@ -12,16 +12,16 @@ import 'package:flutter/services.dart';
 /// No desktop/web nada disso se aplica: a janela não gira, e esperar por uma
 /// rotação que nunca vem deixaria a tela preta para sempre.
 
-bool get _isMobile =>
-    defaultTargetPlatform == TargetPlatform.android ||
-    defaultTargetPlatform == TargetPlatform.iOS;
+bool get _isMobile => // Propriedade privada para testar se a plataforma é nativamente mobile (impede bugs na web/desktop).
+    defaultTargetPlatform == TargetPlatform.android || // Retorna true se for um smartphone/tablet Android.
+    defaultTargetPlatform == TargetPlatform.iOS; // Retorna true se for um iPhone/iPad.
 
 /// Pede ao sistema a orientação desejada.
-void aplicarOrientacao({required bool retrato}) {
-  SystemChrome.setPreferredOrientations(
-    retrato
-        ? [DeviceOrientation.portraitUp]
-        : [DeviceOrientation.landscapeLeft, DeviceOrientation.landscapeRight],
+void aplicarOrientacao({required bool retrato}) { // Função responsável por pedir a trava de tela pro sistema operacional.
+  SystemChrome.setPreferredOrientations( // Invoca o bloqueio oficial do SO via canais do Flutter.
+    retrato // Uma condicional avalia: a tela pedida é 'retrato'?
+        ? [DeviceOrientation.portraitUp] // Se sim, force e permita apenas o modo em pé.
+        : [DeviceOrientation.landscapeLeft, DeviceOrientation.landscapeRight], // Se não, libere o aparelho para deitar p/ direita ou esquerda.
   );
 }
 
@@ -53,13 +53,13 @@ class TelaGirando extends StatelessWidget {
 /// certa — é o que faz o menu voltar para retrato sozinho quando o jogador
 /// sai de uma fase que estava rodando em paisagem.
 class OrientacaoFixa extends StatefulWidget {
-  final bool retrato;
-  final Widget child;
+  final bool retrato; // verifica se a tela precisa estar em retrato (true) ou paisagem (false)
+  final Widget child; // renderiza só dps de girar
 
   const OrientacaoFixa({
-    super.key,
-    this.retrato = true,
-    required this.child,
+    super.key, 
+    this.retrato = true, //true é default se n informar
+    required this.child, //passa qual é a tela
   });
 
   @override
@@ -69,15 +69,15 @@ class OrientacaoFixa extends StatefulWidget {
 class _OrientacaoFixaState extends State<OrientacaoFixa> {
   @override
   void initState() {
-    super.initState();
-    aplicarOrientacao(retrato: widget.retrato);
+    super.initState(); 
+    aplicarOrientacao(retrato: widget.retrato); // aplica a orientação
   }
 
   @override
   void didUpdateWidget(OrientacaoFixa oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.retrato != widget.retrato) {
-      aplicarOrientacao(retrato: widget.retrato);
+    super.didUpdateWidget(oldWidget); //padrão do flutter de reconstrução
+    if (oldWidget.retrato != widget.retrato) { //compara com a orientação antiga, pra ver se mudou
+      aplicarOrientacao(retrato: widget.retrato); // reaplica a orientação se mudou
     }
   }
 

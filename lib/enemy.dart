@@ -18,12 +18,12 @@ class Enemy {
   /// Quantos tiros do jogador o boss aguenta antes de morrer.
   static const int vidaBoss = 4;
 
-  final EnemyType tipo;
+  final EnemyType tipo; //se é boss ou inimigo normal
 
-  double x;
+  double x; //posicao do inimigo
   double y;
 
-  double width;
+  double width; //tamanho do inimigo
   double height;
 
   double position;
@@ -39,21 +39,21 @@ class Enemy {
   Vector velocity = Vector(0, 0);
 
   Enemy({
-    this.x = 0,
+    this.x = 0, //0 se não informar
     this.y = 0,
-    this.tipo = EnemyType.normal,
+    this.tipo = EnemyType.normal, //inimigo é normal se não informar
     double? width,
     double? height,
     this.position = 0,
-  })  : width = width ?? tamanhoDe(tipo),
+  })  : width = width ?? tamanhoDe(tipo), //se nulo usa o tamanho padrão do tipo  
         height = height ?? tamanhoDe(tipo),
         vida = tipo == EnemyType.boss ? vidaBoss : 1;
 
   /// Tamanho do corpo de cada tipo de inimigo.
-  static double tamanhoDe(EnemyType tipo) =>
-      tipo == EnemyType.boss ? tamanhoNormal * escalaBoss : tamanhoNormal;
+  static double tamanhoDe(EnemyType tipo) => // Método estático para calcular e retornar o tamanho correto.
+      tipo == EnemyType.boss ? tamanhoNormal * escalaBoss : tamanhoNormal; // Se for boss, multiplica o tamanho normal 
 
-  bool get boss => tipo == EnemyType.boss;
+  bool get boss => tipo == EnemyType.boss; //valor booleano que indica se é boss ou não
 
   /// Vivo enquanto ainda tiver vida. O normal morre no primeiro tiro; o boss,
   /// no quarto.
@@ -95,6 +95,7 @@ class Enemy {
   double get alturaTiro =>
       boss ? alturaTiroNormal * escalaBoss : alturaTiroNormal;
 
+  /// Margens do inimigo, para facilitar a leitura de colisões.
   double get top => y;
   double get bottom => y + height;
   double get left => x;

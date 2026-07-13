@@ -15,8 +15,8 @@ Future<void> main() async {
   // Prepara o backend do SQLite (FFI no desktop, nativo no mobile) e carrega
   // progresso e configurações para a memória, para as telas já lerem síncrono.
   DatabaseHelper.inicializarFactory();
-  await ProgressoService.instance.carregar();
-  await ConfiguracoesService.instance.carregar();
+  await ProgressoService.instance.carregar(); // Puxa dados salvos do jogo (fases liberadas) antes da UI subir.
+  await ConfiguracoesService.instance.carregar(); // Puxa volume e configurações antes da UI subir.
 
   // Trilha sonora do jogo, tocando em loop por trás de todas as telas.
   unawaited(MusicaService.instance.iniciar());
