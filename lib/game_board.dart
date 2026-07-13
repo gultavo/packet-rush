@@ -582,6 +582,13 @@ class _GameBoardState extends State<GameBoard> {
   }
 
   void _perderVida() {
+    // DEV mode: vida infinita. O dano em si continua valendo (quem cai num
+    // buraco ainda volta para o início da fase, porque o reset é feito por
+    // quem chama), mas não custa vida nem leva a Game Over. O modo existe
+    // para percorrer as fases em teste, e refazer a fase inteira a cada erro
+    // é justamente o que atrapalha isso.
+    if (ConfiguracoesService.instance.devMode) return;
+
     if (vidas <= 0) return;
     vidas--;
 

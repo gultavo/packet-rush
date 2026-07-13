@@ -65,11 +65,11 @@ class Enemy {
   }
 
   /// Sprite do corpo. O boss usa a de tiro o tempo todo, de propósito: a de
-  /// idle (`boss_1.png`) é um recorte de enquadramento diferente, então
-  /// alternar entre as duas fazia o boss mudar de tamanho na tela a cada
-  /// disparo. Como o cooldown dele é de 1200ms, ele ficava em pose de tiro
-  /// quase 100% do tempo de qualquer jeito — manter só essa sprite mata a
-  /// oscilação e não perde nada.
+  /// idle (`boss_1.png`, já removida do repo) tinha um enquadramento
+  /// diferente, então alternar entre as duas fazia o boss mudar de tamanho na
+  /// tela a cada disparo. Como o cooldown dele é de 1200ms, ele ficava em
+  /// pose de tiro quase 100% do tempo de qualquer jeito — manter só essa
+  /// sprite mata a oscilação e não perde nada.
   String get currentSprite =>
       boss ? 'sprites/Boss_atirando.png' : 'sprites/enemy_1.png';
 
