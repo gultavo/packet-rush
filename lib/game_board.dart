@@ -12,6 +12,7 @@ import 'fases/fase_content.dart';
 import 'data/progresso_service.dart';
 import 'data/configuracoes_service.dart';
 import 'orientacao.dart';
+import 'package:vibration/vibration.dart';
 
 class GameBoard extends StatefulWidget {
   final Fase fase;
@@ -597,8 +598,23 @@ class _GameBoardState extends State<GameBoard> {
       keys.right = false;
       player.velocity.x = 0;
       player.velocity.y = 0;
+      _vibrarGameOver();
       setState(() => _mostrandoGameOver = true);
     }
+  }
+
+  /// Vibra o celular por 2 segundos em intensidade média (amplitude 128 de
+  /// 255) quando o jogador perde todas as vidas. Amplitude só é respeitada em
+  /// aparelhos com controle de amplitude (Android moderno); nos demais o motor
+  /// vibra na intensidade padrão. Em plataformas sem plugin de vibração
+  /// (desktop) a chamada falha e é ignorada — vibrar é enfeite, não pode
+  /// derrubar o jogo.
+  Future<void> _vibrarGameOver() async {
+    try {
+      if (await Vibration.hasVibrator()) {
+        await Vibration.vibrate(duration: 2000, amplitude: 128);
+      }
+    } catch (_) {}
   }
 
   /// Chamado pelo botão "Reiniciar" da tela de Game Over: restaura vidas,
