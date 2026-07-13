@@ -1107,7 +1107,7 @@ class _GameBoardState extends State<GameBoard> {
                               height: inimigo.height,
                               duration: fps,
                               child: Transform.flip(
-                                flipX: inimigo.position == 1,
+                                flipX: inimigo.espelhado,
                                 child: Container(
                                   decoration: BoxDecoration(
                                     image: DecorationImage(

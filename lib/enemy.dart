@@ -73,6 +73,21 @@ class Enemy {
   String get currentSprite =>
       boss ? 'sprites/Boss_atirando.png' : 'sprites/enemy_1.png';
 
+  /// Se a sprite precisa ser espelhada para o inimigo ENCARAR o jogador.
+  ///
+  /// As duas artes são desenhadas para lados opostos, e é por isso que isto
+  /// não é um simples `position == 1` para todo mundo:
+  ///  - `enemy_1.png` olha para a ESQUERDA (viseira e braço da arma à
+  ///    esquerda), então precisa espelhar quando o jogador está à direita.
+  ///  - `Boss_atirando.png` olha para a DIREITA (a cabeça e a garra apontam
+  ///    para a direita; o cilindro grande do lado esquerdo é peça de ombro,
+  ///    não a arma), então é o contrário: espelha quando o jogador está à
+  ///    ESQUERDA. Usar a mesma regra dos dois deixava o boss de costas para o
+  ///    jogador, atirando por cima do próprio ombro.
+  ///
+  /// [position] é 0 quando o jogador está à esquerda e 1 quando está à direita.
+  bool get espelhado => boss ? position == 0 : position == 1;
+
   String get spriteTiro => boss ? 'sprites/Tiro_boss.png' : 'sprites/tiro.png';
 
   double get larguraTiro =>
