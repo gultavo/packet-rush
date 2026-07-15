@@ -25,15 +25,41 @@ class MusicaService with WidgetsBindingObserver {
 
   /// Prepara e começa a trilha sonora (se a música estiver ligada). Chame uma
   /// única vez, no arranque do app.
+  ///
+  /// Tocar áudio pode falhar por motivos fora do nosso controle (no navegador,
+  /// o autoplay é bloqueado até o usuário interagir com a página). A música é
+  /// enfeite: se ela não subir, o jogo continua normalmente — por isso nada
+  /// aqui pode escapar como exceção.
   Future<void> iniciar() async {
     if (_iniciado) return;
     _iniciado = true;
 
-    await _player.setReleaseMode(ReleaseMode.loop);
-    await _player.setSource(AssetSource(_caminhoTrilha));
-    WidgetsBinding.instance.addObserver(this);
-    if (ConfiguracoesService.instance.musicaLigada) {
+    try {
+      await _player.setReleaseMode(ReleaseMode.loop);
+      await _player.setSource(AssetSource(_caminhoTrilha));
+      WidgetsBinding.instance.addObserver(this);
+      if (ConfiguracoesService.instance.musicaLigada) {
+        await _player.resume();
+      }
+    } catch (e) {
+      debugPrint('Não foi possível iniciar a trilha sonora: $e');
+    }
+  }
+
+  /// Tenta (re)tomar a trilha depois do primeiro toque/clique do usuário.
+  ///
+  /// Existe por causa da política de autoplay dos navegadores: na web, o
+  /// `resume()` do arranque é recusado porque ainda não houve interação com a
+  /// página, e a música só pode começar a partir de um gesto do usuário. Nas
+  /// outras plataformas a trilha já está tocando e isto vira um no-op.
+  Future<void> retomarAposGesto() async {
+    if (!_iniciado) return;
+    if (!ConfiguracoesService.instance.musicaLigada) return;
+    if (_player.state == PlayerState.playing) return;
+    try {
       await _player.resume();
+    } catch (_) {
+      // Segue sem música; nada a fazer.
     }
   }
 

@@ -1,4 +1,6 @@
-import 'package:sqflite/sqflite.dart' show ConflictAlgorithm;
+// Da API pura em Dart (ver [DatabaseHelper]): importar `sqflite` aqui puxaria
+// o plugin nativo para o build da web.
+import 'package:sqflite_common/sqflite.dart' show ConflictAlgorithm;
 
 import 'database_helper.dart';
 

@@ -1,10 +1,16 @@
-import 'dart:io' show Platform;
-
-import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
-// `sqflite_ffi` re-exporta a API pública do `sqflite` (Database, openDatabase,
-// getDatabasesPath, etc.), então um único import cobre mobile e desktop.
-import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+// `sqflite_common` é a API pura em Dart do sqflite (Database, openDatabase,
+// getDatabasesPath, ...), sem `dart:io` nem `dart:ffi`. Por isso ela compila em
+// todas as plataformas, inclusive na web: quem depende de plataforma é só a
+// *fábrica* do banco, escolhida no import condicional abaixo.
+import 'package:sqflite_common/sqflite.dart';
+
+// Escolhe em tempo de compilação quem registra o backend do SQLite: no
+// navegador, o SQLite em WebAssembly; nas demais plataformas, o plugin nativo
+// (mobile) ou o FFI (desktop). Assim o código de web nunca entra no build
+// nativo — e o `dart:io` do build nativo nunca entra no da web.
+import 'db_factory_io.dart'
+    if (dart.library.js_interop) 'db_factory_web.dart' as db_factory;
 
 /// Ponto único de acesso ao banco de dados SQLite local do jogo.
 ///
@@ -13,9 +19,11 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 /// esta classe — assim, se um dia trocarmos o mecanismo de persistência, só
 /// este arquivo muda.
 ///
-/// Suporta tanto mobile (Android/iOS, via `sqflite` nativo) quanto desktop
+/// Suporta mobile (Android/iOS, via `sqflite` nativo), desktop
 /// (Windows/Linux/macOS, via `sqflite_common_ffi`), que é onde o projeto é
-/// desenvolvido.
+/// desenvolvido, e a web (via `sqflite_common_ffi_web`, com o SQLite em
+/// WebAssembly gravando no IndexedDB do navegador). O schema e as consultas
+/// são os mesmos nas três.
 class DatabaseHelper {
   DatabaseHelper._();
 
@@ -34,14 +42,11 @@ class DatabaseHelper {
   /// Garante que o backend correto esteja registrado antes de abrir o banco.
   ///
   /// Deve ser chamado uma vez no arranque do app (ver `main.dart`), antes de
-  /// qualquer acesso ao banco. No desktop, ativa o backend FFI; no mobile, o
-  /// `sqflite` nativo já é o padrão e nada precisa ser feito.
+  /// qualquer acesso ao banco. Cada plataforma tem o seu backend (nativo no
+  /// mobile, FFI no desktop, WebAssembly na web); a escolha é feita pelo
+  /// import condicional no topo do arquivo.
   static void inicializarFactory() {
-    if (kIsWeb) return; // Web usaria outro backend; o jogo roda em app nativo.
-    if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
-      sqfliteFfiInit();
-      databaseFactory = databaseFactoryFfi;
-    }
+    db_factory.configurarDatabaseFactory();
   }
 
   /// Conexão aberta (abrindo-a de forma preguiçosa na primeira chamada).
