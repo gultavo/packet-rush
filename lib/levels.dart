@@ -24,10 +24,3 @@ class LevelData{
   /// Proporção largura/altura da arte de fundo.
   double get aspect => imgHeight == 0 ? 2.5 : imgWidth / imgHeight; // Calcula a proporção (aspect ratio) da imagem de fundo protegendo contra divisão por zero.
 }
-
-final levelOne = LevelData( // Declara e configura a instância do primeiro nível do jogo (fase 1).
-  size: const Size(1600, 600), // Configura as dimensões lógicas do nível 1.
-  offset: const Offset(800, 0), // Configura o offset de limite da câmera para o nível 1.
-  backgroundImage: 'sprites/Back_2-1.png', // Aponta a arte de cenário que este nível usará.
-  larguraDoMapa: 4340 // Extensão jogável desse mapa específico.
-);
